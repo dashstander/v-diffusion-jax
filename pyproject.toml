@@ -6,7 +6,7 @@ authors = ["Katherine Crowson <crowsonkb@gmail.com>, John David Pressman <jd@jdp
 license = "MIT"
 
 [tool.poetry.dependencies]
-python = ">=3.8,<3.11"
+python = ">=3.7,<3.11"
 Pillow = "^8.4.0"
 jax = "^0.2.24"
 jaxlib = "^0.1.73"
