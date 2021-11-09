@@ -10,4 +10,3 @@ Pillow
 torch
 torchvision
 tqdm
-./CLIP_JAX/
