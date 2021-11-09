@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "v-diffusion-jax"
+name = "diffusion"
 version = "0.1.0"
 description = "Denoising Diffusion (Guided by CLIP) in Jax"
 authors = ["Katherine Crowson <crowsonkb@gmail.com>, John David Pressman <jd@jdpressman.com>"]
