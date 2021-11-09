@@ -4,7 +4,7 @@ import pkg_resources
 from setuptools import setup, find_packages
 
 setup(
-    name="v-diffusion-jax",
+    name="diffusion",
     py_modules=["diffusion"],
     version="0.1",
     description="",
