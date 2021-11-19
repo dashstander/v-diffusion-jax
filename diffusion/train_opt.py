@@ -8,6 +8,7 @@ from einops import rearrange, repeat
 import haiku as hk
 import jax
 import jax.numpy as jnp
+from jax.tree_util import Partial
 import numpy as np
 import optax
 from PIL import Image, ImageFile
@@ -90,6 +91,7 @@ class Dropout2d(hk.Module):
         return x * p / (1.0 - rate)
 
 
+@hk.remat
 class SelfAttention2d(hk.Module):
     def __init__(self, n_head=1, dropout_rate=0.1, name=None):
         super().__init__(name=name)
@@ -157,63 +159,63 @@ def diffusion_model(x, log_snr, extra_args, is_training):
     ##########################################
     x_5 = hk.AvgPool(2, 2, 'SAME', 1)(x_4)  # 16x16
     x_5 = res_conv_block(c * 4, c * 4)(x_5, is_training)
-    x_5 = hk.remat(SelfAttention2d(c * 4 // 128))(x_5, is_training)
+    x_5 = SelfAttention2d(c * 4 // 128)(x_5, is_training)
     x_5 = res_conv_block(c * 4, c * 4)(x_5, is_training)
-    x_5 = hk.remat(SelfAttention2d(c * 4 // 128))(x_5, is_training)
+    x_5 = SelfAttention2d(c * 4 // 128)(x_5, is_training)
     x_5 = res_conv_block(c * 4, c * 4)(x_5, is_training)
-    x_5 = hk.remat(SelfAttention2d(c * 4 // 128))(x_5, is_training)
+    x_5 = SelfAttention2d(c * 4 // 128)(x_5, is_training)
     x_5 = res_conv_block(c * 4, c * 4)(x_5, is_training)
-    x_5 = hk.remat(SelfAttention2d(c * 4 // 128))(x_5, is_training)
+    x_5 = SelfAttention2d(c * 4 // 128)(x_5, is_training)
     ##########################################
     x_6 = hk.AvgPool(2, 2, 'SAME', 1)(x_5)  # 8x8
     x_6 = res_conv_block(c * 4, c * 4)(x_6, is_training)
-    x_6 = hk.remat(SelfAttention2d(c * 4 // 128))(x_6, is_training)
+    x_6 = SelfAttention2d(c * 4 // 128)(x_6, is_training)
     x_6 = res_conv_block(c * 4, c * 4)(x_6, is_training)
-    x_6 = hk.remat(SelfAttention2d(c * 4 // 128))(x_6, is_training)
+    x_6 = SelfAttention2d(c * 4 // 128)(x_6, is_training)
     x_6 = res_conv_block(c * 4, c * 4)(x_6, is_training)
-    x_6 = hk.remat(SelfAttention2d(c * 4 // 128))(x_6, is_training)
+    x_6 = SelfAttention2d(c * 4 // 128)(x_6, is_training)
     x_6 = res_conv_block(c * 4, c * 4)(x_6, is_training)
-    x_6 = hk.remat(SelfAttention2d(c * 4 // 128))(x_6, is_training)
+    x_6 = SelfAttention2d(c * 4 // 128)(x_6, is_training)
     ##########################################
     x_7 = hk.AvgPool(2, 2, 'SAME', 1)(x_6)  # 4x4
     x_7 = res_conv_block(c * 8, c * 8)(x_7, is_training)
-    x_7 = hk.remat(SelfAttention2d(c * 8 // 128))(x_7, is_training)
+    x_7 = SelfAttention2d(c * 8 // 128)(x_7, is_training)
     x_7 = res_conv_block(c * 8, c * 8)(x_7, is_training)
-    x_7 = hk.remat(SelfAttention2d(c * 8 // 128))(x_7, is_training)
+    x_7 = SelfAttention2d(c * 8 // 128)(x_7, is_training)
     x_7 = res_conv_block(c * 8, c * 8)(x_7, is_training)
-    x_7 = hk.remat(SelfAttention2d(c * 8 // 128))(x_7, is_training)
+    x_7 = SelfAttention2d(c * 8 // 128)(x_7, is_training)
     x_7 = res_conv_block(c * 8, c * 8)(x_7, is_training)
-    x_7 = hk.remat(SelfAttention2d(c * 8 // 128))(x_7, is_training)
+    x_7 = SelfAttention2d(c * 8 // 128)(x_7, is_training)
     x_7 = res_conv_block(c * 8, c * 8)(x_7, is_training)
-    x_7 = hk.remat(SelfAttention2d(c * 8 // 128))(x_7, is_training)
+    x_7 = SelfAttention2d(c * 8 // 128)(x_7, is_training)
     x_7 = res_conv_block(c * 8, c * 8)(x_7, is_training)
-    x_7 = hk.remat(SelfAttention2d(c * 8 // 128))(x_7, is_training)
+    x_7 = SelfAttention2d(c * 8 // 128)(x_7, is_training)
     x_7 = res_conv_block(c * 8, c * 8)(x_7, is_training)
-    x_7 = hk.remat(SelfAttention2d(c * 8 // 128))(x_7, is_training)
+    x_7 = SelfAttention2d(c * 8 // 128)(x_7, is_training)
     x_7 = res_conv_block(c * 8, c * 4)(x_7, is_training)
-    x_7 = hk.remat(SelfAttention2d(c * 4 // 128))(x_7, is_training)
+    x_7 = SelfAttention2d(c * 4 // 128)(x_7, is_training)
     x_7 = jax.image.resize(x_7, [*x_7.shape[:2], *x_6.shape[2:]], 'nearest')
     ##########################################
     x_6 = jnp.concatenate([x_6, x_7], axis=1)
     x_6 = res_conv_block(c * 4, c * 4)(x_6, is_training)
-    x_6 = hk.remat(SelfAttention2d(c * 4 // 128))(x_6, is_training)
+    x_6 = SelfAttention2d(c * 4 // 128)(x_6, is_training)
     x_6 = res_conv_block(c * 4, c * 4)(x_6, is_training)
-    x_6 = hk.remat(SelfAttention2d(c * 4 // 128))(x_6, is_training)
+    x_6 = SelfAttention2d(c * 4 // 128)(x_6, is_training)
     x_6 = res_conv_block(c * 4, c * 4)(x_6, is_training)
-    x_6 = hk.remat(SelfAttention2d(c * 4 // 128))(x_6, is_training)
+    x_6 = SelfAttention2d(c * 4 // 128)(x_6, is_training)
     x_6 = res_conv_block(c * 4, c * 4)(x_6, is_training)
-    x_6 = hk.remat(SelfAttention2d(c * 4 // 128))(x_6, is_training)
+    x_6 = SelfAttention2d(c * 4 // 128)(x_6, is_training)
     x_6 = jax.image.resize(x_6, [*x_6.shape[:2], *x_5.shape[2:]], 'nearest')
     ##########################################
     x_5 = jnp.concatenate([x_5, x_6], axis=1)
     x_5 = res_conv_block(c * 4, c * 4)(x_5, is_training)
     x_5 = hk.remat(SelfAttention2d(c * 4 // 128))(x_5, is_training)
     x_5 = res_conv_block(c * 4, c * 4)(x_5, is_training)
-    x_5 = hk.remat(SelfAttention2d(c * 4 // 128))(x_5, is_training)
+    x_5 = SelfAttention2d(c * 4 // 128)(x_5, is_training)
     x_5 = res_conv_block(c * 4, c * 4)(x_5, is_training)
-    x_5 = hk.remat(SelfAttention2d(c * 4 // 128))(x_5, is_training)
+    x_5 = SelfAttention2d(c * 4 // 128)(x_5, is_training)
     x_5 = res_conv_block(c * 4, c * 2)(x_5, is_training)
-    x_5 = hk.remat(SelfAttention2d(c * 2 // 128))(x_5, is_training)
+    x_5 = SelfAttention2d(c * 2 // 128)(x_5, is_training)
     x_5 = jax.image.resize(x_5, [*x_5.shape[:2], *x_4.shape[2:]], 'nearest')
     ##########################################
     x_4 = jnp.concatenate([x_4, x_5], axis=1)
@@ -257,6 +259,109 @@ def worker_init_fn(worker_id):
     ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
+def get_ema_decay(default_decay, epoch):
+    if epoch < 20:
+        return 0.99
+    return default_decay
+
+
+def v_loss(model, params, key, inputs, extra_args, is_training):
+    key, subkey = jax.random.split(key)
+    t = jax.random.uniform(subkey, inputs.shape[:1])
+    log_snrs = get_ddpm_schedule(get_ddpm_inverse_cdf(t))
+    alphas, sigmas = get_alpha_sigma(log_snrs)
+    key, subkey = jax.random.split(key)
+    noise = jax.random.normal(subkey, inputs.shape)
+    noised_inputs = inputs * alphas[:, None, None, None] + noise * sigmas[:, None, None, None]
+    targets = noise * alphas[:, None, None, None] - inputs * sigmas[:, None, None, None]
+    v = model.apply(params, key, noised_inputs, log_snrs, extra_args, is_training)
+    return jnp.mean(jnp.square(v - targets)) * 0.280219
+
+
+def train_one_step(loss_fn, optimizer, params, opt_state, key, inputs, extra_args, axis_name='i'):
+    loss_grads = jax.value_and_grad(loss_fn)(params, key, inputs, extra_args, jnp.array(1))
+    loss, grads = jax.lax.pmean(loss_grads, axis_name)
+    updates, opt_state = optimizer.update(grads, opt_state)
+    params = optax.apply_updates(params, updates)
+    return loss, params, opt_state
+
+
+def train_one_epoch(
+    data_loader,
+    ema_decay_fn,
+    train_step_fn,
+    num_devices,
+    epoch,
+    log_file,
+    params,
+    params_ema,
+    opt_state,
+    key
+):
+    pmap_train_step = jax.pmap(train_step_fn, axis_name='i')
+    for i, batch in enumerate(tqdm(data_loader)):
+        inputs, _ = jax.tree_map(lambda x: psplit(jnp.array(x), num_devices), batch)
+        key, subkey = jax.random.split(key)
+        keys = jnp.stack(jax.random.split(subkey, num_devices))
+        loss, params, opt_state = pmap_train_step(params, opt_state, keys, inputs, {})
+        params_ema = p_ema_update(params, params_ema, ema_decay_fn(epoch))
+        print(epoch, i, time.time(), unreplicate(loss), sep=',', file=log_file, flush=True)
+        if i % 50 == 0:
+            tqdm.write(f'Epoch {epoch}, iteration {i}, loss {unreplicate(loss):g}')
+    return params, params_ema, opt_state
+
+
+def sample_step(model, params, key, x_t, log_snr, log_snr_next, eta, extra_args):
+    dummy_key = jax.random.PRNGKey(0)
+    v = model.apply(
+        params,
+        dummy_key,
+        x_t,
+        repeat(log_snr, '-> n', n=x_t.shape[0]),
+        extra_args,
+        jnp.array(0)
+    )
+    alpha, sigma = get_alpha_sigma(log_snr)
+    pred = x_t * alpha - v * sigma
+    eps = x_t * sigma + v * alpha
+    alpha_next, sigma_next = get_alpha_sigma(log_snr_next)
+    ddim_sigma = eta * jnp.sqrt(sigma_next**2 / sigma**2) * jnp.sqrt(1 - alpha**2 / alpha_next**2)
+    adjusted_sigma = jnp.sqrt(sigma_next**2 - ddim_sigma**2)
+    x_t = pred * alpha_next + eps * adjusted_sigma
+    x_t = x_t + jax.random.normal(key, x_t.shape) * ddim_sigma
+    return x_t, pred
+
+
+def sample(sample_fn, num_devices, params, key, x_t, steps, eta, extra_args):
+    t = jnp.linspace(1, 0, steps + 1)[:-1]
+    log_snrs = get_ddpm_schedule(t)
+    pmap_sample_step = jax.pmap(sample_fn, in_axes=(0, 0, 0, None, None, None, 0))
+    for i in trange(steps):
+        key, subkey = jax.random.split(key)
+        keys = jnp.stack(jax.random.split(subkey, num_devices))
+        if i < steps - 1:
+            x_t, _ = pmap_sample_step(
+                params,
+                keys,
+                x_t,
+                log_snrs[i],
+                log_snrs[i + 1],
+                eta,
+                extra_args
+            )
+        else:
+            _, pred = pmap_sample_step(
+                params,
+                keys,
+                x_t,
+                log_snrs[i],
+                log_snrs[i],
+                eta,
+                extra_args
+            )
+    return pred
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--batch-size', '-bs', type=int, default=64,
@@ -287,11 +392,22 @@ def main():
         transforms.Normalize([0.5], [0.5]),
     ])
     train_set = datasets.ImageFolder(args.train_set, transform=tf)
-    train_sampler = data.DistributedSampler(train_set, num_processes, local_rank,
-                                            seed=args.seed, drop_last=True)
-    train_dl = data.DataLoader(train_set, args.batch_size, sampler=train_sampler, drop_last=True,
-                               worker_init_fn=worker_init_fn, num_workers=48,
-                               persistent_workers=True)
+    train_sampler = data.DistributedSampler(
+        train_set,
+        num_processes,
+        local_rank,
+        seed=args.seed,
+        drop_last=True
+    )
+    train_dl = data.DataLoader(
+        train_set,
+        args.batch_size,
+        sampler=train_sampler,
+        drop_last=True,
+        worker_init_fn=worker_init_fn,
+        num_workers=48,
+        persistent_workers=True
+    )
 
     model = hk.transform(diffusion_model)
 
@@ -299,11 +415,13 @@ def main():
 
     if not args.resume:
         epoch = 0
-        params = model.init(jax.random.PRNGKey(args.seed),
-                            jnp.zeros([1, *shape]),
-                            jnp.zeros([1]),
-                            {},
-                            jnp.array(0))
+        params = model.init(
+            jax.random.PRNGKey(args.seed),
+            jnp.zeros([1, *shape]),
+            jnp.zeros([1]),
+            {},
+            jnp.array(0)
+        )
         params = jax.tree_map(lambda x: x / 2, params)
         params_ema = params
         opt_state = opt.init(params)
@@ -326,79 +444,30 @@ def main():
 
     key = jax.random.PRNGKey(args.seed)
     key = jax.random.split(key, num_processes)[local_rank]
-
-    def get_ema_decay(epoch):
-        if epoch < 20:
-            return 0.99
-        return args.ema_decay
-
-    def compute_loss(params, key, inputs, extra_args, is_training):
-        key, subkey = jax.random.split(key)
-        t = jax.random.uniform(subkey, inputs.shape[:1])
-        log_snrs = get_ddpm_schedule(get_ddpm_inverse_cdf(t))
-        alphas, sigmas = get_alpha_sigma(log_snrs)
-        key, subkey = jax.random.split(key)
-        noise = jax.random.normal(subkey, inputs.shape)
-        noised_inputs = inputs * alphas[:, None, None, None] + noise * sigmas[:, None, None, None]
-        targets = noise * alphas[:, None, None, None] - inputs * sigmas[:, None, None, None]
-        v = model.apply(params, key, noised_inputs, log_snrs, extra_args, is_training)
-        return jnp.mean(jnp.square(v - targets)) * 0.280219
-
-    def train_step(params, opt_state, key, inputs, extra_args, axis_name='i'):
-        loss_grads = jax.value_and_grad(compute_loss)(params, key, inputs, extra_args, jnp.array(1))
-        loss, grads = jax.lax.pmean(loss_grads, axis_name)
-        updates, opt_state = opt.update(grads, opt_state)
-        params = optax.apply_updates(params, updates)
-        return loss, params, opt_state
-
-    def train_one_epoch(params, params_ema, opt_state, key):
-        pmap_train_step = jax.pmap(train_step, axis_name='i')
-        for i, batch in enumerate(tqdm(train_dl)):
-            inputs, _ = jax.tree_map(lambda x: psplit(jnp.array(x), num_local_devices), batch)
-            key, subkey = jax.random.split(key)
-            keys = jnp.stack(jax.random.split(subkey, num_local_devices))
-            loss, params, opt_state = pmap_train_step(params, opt_state, keys, inputs, {})
-            params_ema = p_ema_update(params, params_ema, get_ema_decay(epoch))
-            print(epoch, i, time.time(), unreplicate(loss), sep=',', file=log_file, flush=True)
-            if i % 50 == 0:
-                tqdm.write(f'Epoch {epoch}, iteration {i}, loss {unreplicate(loss):g}')
-        return params, params_ema, opt_state
-
-    def sample_step(params, key, x_t, log_snr, log_snr_next, eta, extra_args):
-        dummy_key = jax.random.PRNGKey(0)
-        v = model.apply(params, dummy_key, x_t, repeat(log_snr, '-> n', n=x_t.shape[0]), extra_args,
-                        jnp.array(0))
-        alpha, sigma = get_alpha_sigma(log_snr)
-        pred = x_t * alpha - v * sigma
-        eps = x_t * sigma + v * alpha
-        alpha_next, sigma_next = get_alpha_sigma(log_snr_next)
-        ddim_sigma = eta * jnp.sqrt(sigma_next**2 / sigma**2) * jnp.sqrt(1 - alpha**2 / alpha_next**2)
-        adjusted_sigma = jnp.sqrt(sigma_next**2 - ddim_sigma**2)
-        x_t = pred * alpha_next + eps * adjusted_sigma
-        x_t = x_t + jax.random.normal(key, x_t.shape) * ddim_sigma
-        return x_t, pred
-
-    def sample(params, key, x_t, steps, eta, extra_args):
-        t = jnp.linspace(1, 0, steps + 1)[:-1]
-        log_snrs = get_ddpm_schedule(t)
-        pmap_sample_step = jax.pmap(sample_step, in_axes=(0, 0, 0, None, None, None, 0))
-        for i in trange(steps):
-            key, subkey = jax.random.split(key)
-            keys = jnp.stack(jax.random.split(subkey, num_local_devices))
-            if i < steps - 1:
-                x_t, _ = pmap_sample_step(params, keys, x_t, log_snrs[i], log_snrs[i + 1], eta,
-                                          extra_args)
-            else:
-                _, pred = pmap_sample_step(params, keys, x_t, log_snrs[i], log_snrs[i], eta,
-                                           extra_args)
-        return pred
+    
+    ema_decay = Partial(get_ema_decay, args.ema_decay)
+    compute_loss = Partial(v_loss, model) # I think this will be equally as efficient?
+    train_step = Partial(train_one_step, compute_loss, opt) # ??? Is this at all better / easier to read?
+    train_epoch = Partial(
+        train_one_epoch,
+        train_dl,
+        ema_decay,
+        train_step,
+        num_local_devices,
+        epoch,
+        log_file
+    )
+    model_sample_step = Partial(sample_step, model)
+    model_sample = Partial(sample, model_sample_step, num_local_devices)
 
     def save():
         if local_rank == 0:
-            obj = {'params': unreplicate(params),
-                   'params_ema': unreplicate(params_ema),
-                   'opt_state': unreplicate(opt_state),
-                   'epoch': epoch}
+            obj = {
+                'params': unreplicate(params),
+                'params_ema': unreplicate(params_ema),
+                'opt_state': unreplicate(opt_state),
+                'epoch': epoch
+            }
             with open('model.pkl', 'wb') as f:
                 pickle.dump(obj, f)
 
@@ -410,7 +479,7 @@ def main():
                 key, subkey = jax.random.split(key)
                 noise = jax.random.normal(subkey, [8, 8, *shape])
                 key, subkey = jax.random.split(key)
-                out = punsplit(sample(params_ema, subkey, noise, 1000, 1, {}))
+                out = punsplit(model_sample(params_ema, subkey, noise, 1000, 1, {}))
                 outs.append(out)
             out = jnp.concatenate(outs, axis=0)
             grid = rearrange(out, '(s1 s2) c h w -> c (s1 h) (s2 w)', s1=8)
@@ -423,7 +492,7 @@ def main():
             tqdm.write(f'Epoch {epoch}')
             key, subkey = jax.random.split(key)
             train_sampler.set_epoch(epoch)
-            params, params_ema, opt_state = train_one_epoch(params, params_ema, opt_state, subkey)
+            params, params_ema, opt_state = train_epoch(params, params_ema, opt_state, subkey)
             epoch += 1
             tqdm.write('')
             if epoch % 5 == 0:

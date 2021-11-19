@@ -57,7 +57,7 @@ def sample_loop(model, params, key, x, steps, eta, sample_step):
 
 
 def reverse_sample_step(model, params, key, x, t, t_next, extra_args):
-    dummy_key = jax.random.PRNGKey(0)
+    dummy_key = jax.random.PRNGKey(0) # Why isn't `key` used here?
     v = model.apply(params, dummy_key, x, repeat(t, '-> n', n=x.shape[0]), extra_args)
     alpha, sigma = utils.t_to_alpha_sigma(t)
     pred = x * alpha - v * sigma
