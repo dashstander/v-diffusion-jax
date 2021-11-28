@@ -60,7 +60,8 @@ def get_dataset(train_set, batch_size, num_workers, seed):
     return train_dl
 
 
-def clip_loss_fn(image_embed, target):
+def clip_loss_fn(image, target, image_fn, params):
+    image_embed = image_fn(params, image)
     return jnp.sum(utils.spherical_dist_loss(image_embed, target))
 
 
