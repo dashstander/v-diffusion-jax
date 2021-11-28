@@ -144,7 +144,7 @@ def main():
         keys = jax.random.split(key, num=3)
         time = jax.random.uniform(keys[0], [1], minval=min_time, maxval=1.0)
         x = jax.random.normal(subkey, [1, *diffusion_model.shape])
-        total_loss = jnp.zeros([])
+        total_loss = 0.0
         keys = jax.random.split(key, num=max_steps)
         for i in jnp.arange(max_steps):
             x, pred, time, clip_loss, control_loss = sample_step(policy_model, params, keys[i], x, time, target)
