@@ -97,7 +97,7 @@ class CLIPEmbeddingLayer(hk.Module):
 def image_to_ts(x, time_embedding):
     keys = hk.next_rng_keys(5)
     x = hk.Flatten()(x)
-    x = jnp.concatenate(x, time_embedding, axis=1)
+    x = jnp.concatenate([x, time_embedding], axis=1)
     x = hk.Sequential(
         [
             hk.Linear(2048, with_bias=True),
