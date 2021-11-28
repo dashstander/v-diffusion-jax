@@ -60,11 +60,12 @@ def get_dataset(train_set, batch_size, num_workers, seed):
     return train_dl
 
 
-def clip_loss_fn(image, target, image_fn, params, patch_size, clip_size):
+def clip_loss_fn(image, target, image_fn, params, patch_size, clip_size, normalize_fn):
+    print(image.shape)
     extent = patch_size // 2
     clip_in = jnp.pad(image, [(0, 0), (0, 0), (extent, extent), (extent, extent)], 'edge')
     clip_in = jax.image.resize(clip_in, (*clip_in.shape[:2], clip_size, clip_size), 'cubic')
-    image_embed = image_fn(params, clip_in)
+    image_embed = image_fn(params, normalize_fn((clip_in+1)/2))
     return jnp.sum(utils.spherical_dist_loss(image_embed, target))
 
 
