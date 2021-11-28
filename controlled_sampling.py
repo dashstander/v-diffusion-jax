@@ -147,13 +147,10 @@ def main():
         total_loss = jnp.zeros([1])
         keys = jax.random.split(key, num=max_steps)
         for i in jnp.arange(max_steps):
-            if i < max_steps - 1 and time > 0.0:
-                x, _, loss, time_step = sample_step(policy_model, params, keys[i], x, time, target)
-                time -= jnp.abs(time_step)
-            else:
-                time = jnp.maximum(0.0, time)
-                _, pred, loss, _ = sample_step(policy_model, params, keys[i], x, time, target)
-            total_loss += loss
+            x , pred, time, clip_loss, control_loss = sample_step(policy_model, params, keys[i], x, time, target)
+            total_loss += clip_loss + control_loss
+            if time == 0.0:
+                break
         return total_loss, pred
 
 

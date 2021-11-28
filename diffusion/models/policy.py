@@ -81,11 +81,11 @@ class CLIPEmbeddingLayer(hk.Module):
         x = hk.Linear(self.input_size * 2)(x)
         x = hk.dropout(keys[0], 0.1, x)
         x = jax.nn.relu(x)
-        x = hk.MultiHeadAttention(2, self.input_size * 2, 1.0, self.input_size * 2, self.input_size * 2)(x)
+        x = hk.MultiHeadAttention(2, self.input_size * 2, 1.0, self.input_size * 2, self.input_size * 2)(x, x, x)
         x = hk.Linear(self.input_size)(jnp.concatenate([x, timestep]))
         x = hk.dropout(keys[1], 0.1, x)
         x = jax.nn.relu(x)
-        x = hk.MultiHeadAttention(1, self.input_size, 1.0, self.input_size, self.input_size)(x)
+        x = hk.MultiHeadAttention(1, self.input_size, 1.0, self.input_size, self.input_size)(x, x, x)
         return hk.Linear(self.output_size)(x)
 
 
@@ -115,9 +115,7 @@ def image_to_ts(x, time_embedding):
         ]
     )(x)
     
-    return {
-        'mu': x,
-    }
+    return x
 
 
 def pi_model(x, target_grad, t, x_embed, target, extra_args):

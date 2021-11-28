@@ -73,3 +73,8 @@ def get_ddpm_schedule(ddpm_t):
     log_snr = -jnp.log(jnp.expm1(1e-4 + 10 * ddpm_t**2))
     alpha, sigma = log_snr_to_alpha_sigma(log_snr)
     return alpha_sigma_to_t(alpha, sigma)
+
+
+def get_ddpm_inverse_cdf(t):
+    z = jax.scipy.special.erfinv(jax.scipy.special.erf(jnp.sqrt(10)))
+    return jax.scipy.special.erfinv(t * jax.scipy.special.erf(jnp.sqrt(10))) / z
