@@ -213,7 +213,7 @@ def main():
             seed = None
     except Exception as e:
         with open('error.txt', mode='w') as error:
-            error.write(traceback.format_exc(e))
+            error.write(traceback.format_exc())
 
 
 if __name__ == '__main__':
