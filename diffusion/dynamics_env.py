@@ -31,9 +31,11 @@ def rl_sample_step(
     clip_in = jax.image.resize(clip_in, (*x.shape[:2], clip_size, clip_size), 'cubic')
     x_embed = image_fn(clip_params, normalize_fn((clip_in + 1) / 2))
     keys = jax.random.split(key, num=5)
-    clip_loss, clip_grad = clip_loss_fn(normalize_fn((clip_in + 1) / 2), target, image_fn, clip_params) # Doing two forward passes on CLIP :/
+    clip_loss, clip_grad = clip_loss_fn(x, target, image_fn, clip_params) # Doing two forward passes on CLIP :/
     control, timestep = policy.apply(policy_params, keys[1], x, clip_grad, t, x_embed, target, {})
+    print(f'control: {control.shape}')
     v = diff_model.apply(diff_params, keys[2], x, repeat(t, '-> n', n=x.shape[0]), extra_args)
+    print(f'v: {v.shape}')
     alpha, sigma = utils.t_to_alpha_sigma(t)
     v = v - control * (sigma / alpha)
     pred = x * alpha - v * sigma
