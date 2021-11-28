@@ -10,6 +10,7 @@ from jax.tree_util import Partial
 import optax
 from pathlib import Path
 import pickle
+import torch
 from torch.utils import data
 from datasets import load_dataset
 from tqdm import tqdm, trange
@@ -42,7 +43,7 @@ def get_dataset(train_set, batch_size, num_workers, seed):
     train_set = load_dataset(train_set, split='train')
     train_sampler = data.RandomSampler(
         train_set,
-        seed=seed,
+        generator=torch.random.manual_seed(seed),
         drop_last=True
     )
     train_dl = data.DataLoader(
