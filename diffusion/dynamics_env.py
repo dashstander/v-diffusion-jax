@@ -13,6 +13,11 @@ def rl_sample_step(
     diff_model,
     diff_params,
     clip_loss_fn,
+    image_fn,
+    clip_params,
+    clip_patch_size,
+    clip_size,
+    normalize_fn,
     policy,
     policy_params,
     key,
@@ -21,9 +26,14 @@ def rl_sample_step(
     target,
     extra_args
 ):
+
+    
+    extent = clip_patch_size // 2
+    clip_in = jnp.pad(x, [(0, 0), (0, 0), (extent, extent), (extent, extent)], 'edge')
+    clip_in = jax.image.resize(clip_in, (*x.shape[:2], clip_size, clip_size), 'cubic')
+    x_embed = image_fn(clip_params, normalize_fn((clip_in + 1) / 2))
     keys = jax.random.split(key, num=5)
-    value, clip_grad = clip_loss_fn(x, target)
-    clip_loss, x_embed = value
+    clip_loss, clip_grad = clip_loss_fn(x, target)
     control, timestep = policy.apply(keys[1], policy_params, x, clip_grad, t, x_embed, target, {})
     v = diff_model.apply(diff_params, key[2], x, repeat(t, '-> n', n=x.shape[0]), extra_args)
     alpha, sigma = utils.t_to_alpha_sigma(t)
