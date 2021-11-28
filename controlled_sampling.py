@@ -152,7 +152,7 @@ def main():
             total_loss += clip_loss + control_loss
             if time == 0.0:
                 break
-        print(f'Example finished, sampled in {i} steps with {total_loss} loss.')
+        tqdm.write(f'Example finished, sampled in {i} steps with {total_loss} loss.')
         return total_loss
 
 
