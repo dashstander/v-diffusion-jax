@@ -82,7 +82,7 @@ class CLIPEmbeddingLayer(hk.Module):
     
     def __call__(self, x, target, timestep):
         keys = hk.next_rng_keys(2)
-        x = jnp.concatenate([x, target, jnp.sqeeze(timestep, axis=1)], axis=1)
+        x = jnp.concatenate([x, target, jnp.squeeze(timestep, axis=1)], axis=1)
         x = hk.Linear(self.input_size * 2)(x)
         x = hk.dropout(keys[0], 0.1, x)
         x = jax.nn.relu(x)
