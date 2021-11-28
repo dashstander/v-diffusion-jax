@@ -73,7 +73,7 @@ def main():
     train_dl, train_sampler = get_dataset(args.train_set, args.batch_size, args.num_workers, args.seed)
 
     diffusion_model = get_model('wikiart_128')
-    checkpoint = MODULE_DIR / f'checkpoints/{args.model}.pkl'
+    checkpoint = MODULE_DIR / f'checkpoints/{args.diffusion_model}.pkl'
     diffusion_params = load_params(checkpoint)
 
     clip_patch_size = 16 # Constant?
