@@ -37,6 +37,7 @@ parser.add_argument('--eta', default=1.0,
                    help='the amount of noise to add during sampling (0-1)')
 parser.add_argument('--epochs', type=int, default=10)
 parser.add_argument('--size', type=int, default=128)
+parser.add_argument('--max_steps', type=int, default=500)
 parser.add_argument('--num_workers', type=int, default=4)
 
 
@@ -160,11 +161,11 @@ def main():
         return loss, params, pred
 
 
-    def train_one_epoch(params, opt_state, data_loader, key):
+    def train_one_epoch(params, opt_state, data_loader, key, max_steps):
         keys = jax.random.split(key, num=len(data_loader))
         for i, record in enumerate(tqdm(data_loader)):
             target = text_fn(clip_params, clip_jax.tokenize(record['text']))
-            loss, params, opt_state = train_step(params, opt_state, keys[i], target, {})
+            loss, params, opt_state = train_step(params, opt_state, keys[i], target, 0, max_steps)
             if i % 50 == 0:
                 tqdm.write(f'Epoch {epoch}, iteration {i}, loss {loss:g}')
         return params, opt_state
@@ -200,7 +201,7 @@ def main():
             key, subkey = jax.random.split(key)
             #train_sampler.set_epoch(epoch)
             train_dl = get_dataset(args.train_set, args.batch_size, args.num_workers, seed)
-            params, opt_state = train_one_epoch(params, opt_state, train_dl, subkey)
+            params, opt_state = train_one_epoch(params, opt_state, train_dl, subkey, args.max_steps)
             epoch += 1
             tqdm.write('')
             if epoch % 5 == 0:
