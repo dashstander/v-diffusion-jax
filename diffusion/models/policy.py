@@ -65,8 +65,10 @@ def res_conv_block(c_mid, c_out, dropout_last=True):
         x = Dropout2d(0.1)(x, is_training)
         x = hk.Conv2D(c_out, 3, data_format='NCHW')(x)
         x = jax.nn.relu(x)
-        dropout =  Dropout2d(0.1)
-        x = jax.lax.cond(dropout_last, dropout, lambda y, _: y, x, is_training)
+        # dropout =  Dropout2d(0.1)
+        # x = jax.lax.cond(dropout_last, dropout, lambda y, _: y, x, is_training)
+        if dropout_last:
+            x = Dropout2d(0.1)(x, is_training)
         return x + x_skip
     return inner
 

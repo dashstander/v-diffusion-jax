@@ -132,13 +132,13 @@ def main():
         )
     )
 
-    sample_step = jax.jit(Partial(
+    sample_step = Partial(
         rl_sample_step,
         diffusion_model,
         diffusion_params,
         clip_loss_grad,
         extra_args={}
-    ))
+    )
     
     def control_episode(params, key, target, min_time, max_steps):
         keys = jax.random.split(key, num=3)
@@ -147,7 +147,7 @@ def main():
         total_loss = jnp.zeros([1])
         keys = jax.random.split(key, num=max_steps)
         for i in jnp.arange(max_steps):
-            x , pred, time, clip_loss, control_loss = sample_step(policy_model, params, keys[i], x, time, target)
+            x, pred, time, clip_loss, control_loss = sample_step(policy_model, params, keys[i], x, time, target)
             total_loss += clip_loss + control_loss
             if time == 0.0:
                 break
