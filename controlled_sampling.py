@@ -28,6 +28,7 @@ parser.add_argument('--batch_size', '-bs', type=int, default=64,
                    help='the batch size')
 parser.add_argument('--resume', type=str,
                    help='the checkpoint to resume from')
+parser.add_argument('--diffusion_model', type=str, default='wikiart_128')
 parser.add_argument('--seed', type=int, default=0,
                    help='the random seed')
 parser.add_argument('--train_set', type=str, required=True,
