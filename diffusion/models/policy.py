@@ -82,7 +82,7 @@ class CLIPEmbeddingLayer(hk.Module):
     
     def __call__(self, x, target, timestep):
         keys = hk.next_rng_keys(2)
-        x = jnp.concatenate([x, target, jnp.squeeze(timestep, axis=1)], axis=1)
+        x = jnp.concatenate([x, target, timestep], axis=1)
         x = hk.Linear(self.input_size * 2)(x)
         x = hk.dropout(keys[0], 0.1, x)
         x = jax.nn.relu(x)
@@ -178,7 +178,7 @@ def pi_model(x, target_grad, t, x_embed, target, extra_args):
     x = res_conv_block(c, c)(x, is_training)
     x = res_conv_block(c, 3, dropout_last=False)(x, is_training)
     timestep_params = image_to_ts(x, state_embed)
-    return x, timestep_params
+    return x, jnp.squeeze(timestep_params)
 
 
 class PiModel:
