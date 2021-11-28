@@ -163,7 +163,7 @@ def main():
     def train_one_epoch(params, opt_state, data_loader, key):
         keys = jax.random.split(key, num=len(data_loader))
         for i, record in enumerate(tqdm(data_loader)):
-            target = text_fn(clip_params, clip_jax.tokenize([record['text']]))
+            target = text_fn(clip_params, clip_jax.tokenize(record['text']))
             loss, params, opt_state = train_step(params, opt_state, keys[i], target, {})
             if i % 50 == 0:
                 tqdm.write(f'Epoch {epoch}, iteration {i}, loss {loss:g}')
