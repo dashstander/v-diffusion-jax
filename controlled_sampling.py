@@ -70,8 +70,6 @@ def main():
     args, _ = parser.parse_known_args()
     shape = (3, args.size, args.size)
 
-    train_dl, train_sampler = get_dataset(args.train_set, args.batch_size, args.num_workers, args.seed)
-
     diffusion_model = get_model('wikiart_128')
     checkpoint = MODULE_DIR / f'checkpoints/{args.diffusion_model}.pkl'
     diffusion_params = load_params(checkpoint)
@@ -110,8 +108,8 @@ def main():
 
     # params = jax.device_put_replicated(params, jax.local_devices())
     # opt_state = jax.device_put_replicated(opt_state, jax.local_devices())
-
-    key = jax.random.PRNGKey(args.seed)
+    seed = args.seed
+    key = jax.random.PRNGKey(seed)
     key, subkey = jax.random.split(key)
 
     normalize = utils.make_normalize(
@@ -200,7 +198,8 @@ def main():
         while True:
             tqdm.write(f'Epoch {epoch}')
             key, subkey = jax.random.split(key)
-            train_sampler.set_epoch(epoch)
+            #train_sampler.set_epoch(epoch)
+            train_dl = get_dataset(args.train_set, args.batch_size, args.num_workers, seed)
             params, opt_state = train_one_epoch(params, opt_state, train_dl, subkey)
             epoch += 1
             tqdm.write('')
@@ -209,6 +208,7 @@ def main():
                 #demo(subkey)
             if epoch % 5 == 0:
                 save()
+            seed = None
     except KeyboardInterrupt:
         pass
 
