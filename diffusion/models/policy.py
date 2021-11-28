@@ -126,7 +126,7 @@ def pi_model(x, target_grad, t, x_embed, target, extra_args):
     is_training = jnp.array(0.)
     log_snr = utils.alpha_sigma_to_log_snr(*utils.t_to_alpha_sigma(t))
     time_embed = FourierFeatures(16, 0.2)(log_snr[:, None])
-    state_embed = CLIPEmbeddingLayer(512, c, name='CLIP Dynamics State')(x_embed, target, time_embed)
+    state_embed = CLIPEmbeddingLayer(512, c, name='clip_dynamics_state')(x_embed, target, time_embed)
     te_planes = jnp.tile(state_embed[..., None, None], [1, 1, x.shape[2], x.shape[3]])
     x = jnp.concatenate([x, te_planes, target_grad], axis=1)  # 128x128
     x = res_conv_block(c, c)(x, is_training)
