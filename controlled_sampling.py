@@ -149,15 +149,15 @@ def main():
             total_loss += clip_loss + control_loss
             if time == 0.0:
                 break
-        return total_loss, pred
+        return total_loss #, pred
 
 
     def train_step(params, opt_state, key, target, min_time, max_steps):
         key, subkey = jax.random.split(key)
-        loss, grads, pred = jax.value_and_grad(control_episode, has_aux=True)(params, subkey, target, min_time, max_steps)
+        loss, grads = jax.value_and_grad(control_episode, has_aux=True)(params, subkey, target, min_time, max_steps)
         updates, opt_state = opt.update(grads, opt_state)
         params = optax.apply_updates(params, updates)
-        return loss, params, pred
+        return loss, params, opt_state # pred
 
 
     def train_one_epoch(params, opt_state, data_loader, key, max_steps):
