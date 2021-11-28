@@ -97,7 +97,7 @@ class CLIPEmbeddingLayer(hk.Module):
 def image_to_ts(x, time_embedding):
     x = hk.Flatten()(x)
     x = jnp.concatenate([x, time_embedding], axis=1)
-    x = hk.MLP([2048, 1024, 512, 256, 128, 64, 1])(x, dropout_rate=0.1)
+    x = hk.nets.MLP([2048, 1024, 512, 256, 128, 64, 1])(x, dropout_rate=0.1)
     return x
 
 
