@@ -43,8 +43,7 @@ def get_dataset(train_set, batch_size, num_workers, seed):
     train_set = load_dataset(train_set, split='train')
     train_sampler = data.RandomSampler(
         train_set,
-        generator=torch.random.manual_seed(seed),
-        drop_last=True
+        generator=torch.random.manual_seed(seed)
     )
     train_dl = data.DataLoader(
         train_set,
