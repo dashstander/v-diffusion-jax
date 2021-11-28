@@ -60,7 +60,10 @@ def get_dataset(train_set, batch_size, num_workers, seed):
     return train_dl
 
 
-def clip_loss_fn(image, target, image_fn, params):
+def clip_loss_fn(image, target, image_fn, params, patch_size, clip_size):
+    extent = patch_size // 2
+    clip_in = jnp.pad(image, [(0, 0), (0, 0), (extent, extent), (extent, extent)], 'edge')
+    clip_in = jax.image.resize(clip_in, (*clip_in.shape[:2], clip_size, clip_size), 'cubic')
     image_embed = image_fn(params, image)
     return jnp.sum(utils.spherical_dist_loss(image_embed, target))
 
@@ -122,7 +125,13 @@ def main():
         rl_sample_step,
         diffusion_model,
         diffusion_params,
-        jax.value_and_grad(clip_loss_fn),
+        jax.value_and_grad(
+            Partial(
+                clip_loss_fn,
+                patch_size=clip_patch_size,
+                clip_size=clip_size
+            )
+        ),
         image_fn,
         clip_params,
         clip_patch_size,
