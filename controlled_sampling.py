@@ -130,7 +130,8 @@ def main():
             Partial(
                 clip_loss_fn,
                 patch_size=clip_patch_size,
-                clip_size=clip_size
+                clip_size=clip_size,
+                normalize_fn=normalize
             )
         ),
         image_fn,
