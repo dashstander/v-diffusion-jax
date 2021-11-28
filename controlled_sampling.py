@@ -54,7 +54,7 @@ def get_dataset(train_set, batch_size, num_workers, seed):
         num_workers=num_workers,
         persistent_workers=True
     )
-    return train_dl, train_sampler
+    return train_dl
 
 
 
