@@ -64,7 +64,7 @@ def clip_loss_fn(image, target, image_fn, params, patch_size, clip_size):
     extent = patch_size // 2
     clip_in = jnp.pad(image, [(0, 0), (0, 0), (extent, extent), (extent, extent)], 'edge')
     clip_in = jax.image.resize(clip_in, (*clip_in.shape[:2], clip_size, clip_size), 'cubic')
-    image_embed = image_fn(params, image)
+    image_embed = image_fn(params, clip_in)
     return jnp.sum(utils.spherical_dist_loss(image_embed, target))
 
 
