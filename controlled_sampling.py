@@ -209,8 +209,9 @@ def main():
             if epoch % 5 == 0:
                 save()
             seed = None
-    except KeyboardInterrupt:
-        pass
+    except Exception as e:
+        with open('error.txt', mode='w') as error:
+            error.write(str(e))
 
 
 if __name__ == '__main__':
