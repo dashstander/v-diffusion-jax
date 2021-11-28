@@ -15,6 +15,8 @@ from torch.utils import data
 from datasets import load_dataset
 from tqdm import tqdm, trange
 
+import traceback
+
 from diffusion import get_model, load_params, utils
 from diffusion.dynamics_env import rl_sample_step
 # from diffusion.utils import to_pil_image
@@ -211,7 +213,7 @@ def main():
             seed = None
     except Exception as e:
         with open('error.txt', mode='w') as error:
-            error.write(str(e))
+            error.write(traceback.format_exc(e))
 
 
 if __name__ == '__main__':
