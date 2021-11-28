@@ -287,9 +287,10 @@ def train_one_step(loss_fn, optimizer, params, opt_state, key, inputs, extra_arg
 
 
 def train_one_epoch(
+    model,
+    optimizer,
     data_loader,
     ema_decay_fn,
-    train_step_fn,
     num_devices,
     epoch,
     log_file,
@@ -298,8 +299,28 @@ def train_one_epoch(
     opt_state,
     key
 ):
-    pmap_train_step = jax.pmap(train_step_fn, axis_name='i')
-    for i, batch in enumerate(tqdm(data_loader)):
+    def v_loss(params, loss_key, inputs, extra_args, is_training):
+        key, subkey = jax.random.split(loss_key)
+        t = jax.random.uniform(subkey, inputs.shape[:1])
+        log_snrs = get_ddpm_schedule(get_ddpm_inverse_cdf(t))
+        alphas, sigmas = get_alpha_sigma(log_snrs)
+        key, subkey = jax.random.split(key)
+        noise = jax.random.normal(subkey, inputs.shape)
+        noised_inputs = inputs * alphas[:, None, None, None] + noise * sigmas[:, None, None, None]
+        targets = noise * alphas[:, None, None, None] - inputs * sigmas[:, None, None, None]
+        v = model.apply(params, key, noised_inputs, log_snrs, extra_args, is_training)
+        return jnp.mean(jnp.square(v - targets)) * 0.280219
+    
+    def train_one_step(params, opt_state, key, inputs, extra_args, axis_name='i'):
+        loss_grads = jax.value_and_grad(v_loss)(params, key, inputs, extra_args, jnp.array(1))
+        loss, grads = jax.lax.pmean(loss_grads, axis_name)
+        updates, opt_state = optimizer.update(grads, opt_state)
+        params = optax.apply_updates(params, updates)
+        return loss, params, opt_state
+    
+    pmap_train_step = jax.pmap(train_one_step, axis_name='i')
+    
+    for i, batch in enumerate(data_loader):
         inputs, _ = jax.tree_map(lambda x: psplit(jnp.array(x), num_devices), batch)
         key, subkey = jax.random.split(key)
         keys = jnp.stack(jax.random.split(subkey, num_devices))

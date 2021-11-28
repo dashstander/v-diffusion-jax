@@ -1,0 +1,27 @@
+name: diffusion
+channels:
+  - defaults
+  - pytorch
+  - conda-forge
+dependencies:
+  - python>=3.8
+  - pip
+  - aiohttp<=3.8
+  - chardet
+  - dm-haiku
+  - datasets
+  - wandb
+  - einops
+  - ftfy
+  - jax
+  - jaxlib
+  - numpy
+  - optax
+  - regex
+  - Pillow
+  - pytorch
+  - torchvision
+  - tqdm
+  - pip:
+    - coax
+    - ./CLIP_JAX

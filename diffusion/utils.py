@@ -4,6 +4,25 @@ import numpy as np
 from PIL import Image
 
 
+def make_normalize(mean, std):
+    mean = jnp.array(mean).reshape([3, 1, 1])
+    std = jnp.array(std).reshape([3, 1, 1])
+
+    def inner(image):
+        return (image - mean) / std
+    return inner
+
+
+def norm2(x):
+    """Normalizes a batch of vectors to the unit sphere."""
+    return x / jnp.sqrt(jnp.sum(jnp.square(x), axis=-1, keepdims=True))
+
+
+def spherical_dist_loss(x, y):
+    """Computes 1/2 the squared spherical distance between the two arguments."""
+    return jnp.square(jnp.arccos(jnp.sum(norm2(x) * norm2(y), axis=-1))) / 2
+
+
 def from_pil_image(x):
     """Converts from a PIL image to a JAX array."""
     x = jnp.array(x)

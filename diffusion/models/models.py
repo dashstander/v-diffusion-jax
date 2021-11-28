@@ -3,7 +3,7 @@ import pickle
 import jax
 import jax.numpy as jnp
 
-from . import danbooru_128, imagenet_128, wikiart_128, wikiart_256
+from . import danbooru_128, imagenet_128, wikiart_128, wikiart_256, policy
 
 
 models = {
@@ -11,6 +11,7 @@ models = {
     'imagenet_128': imagenet_128.ImageNet128Model,
     'wikiart_128': wikiart_128.WikiArt128Model,
     'wikiart_256': wikiart_256.WikiArt256Model,
+    'policy': policy.PiModel
 }
 
 
