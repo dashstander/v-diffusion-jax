@@ -3,7 +3,6 @@
 """CLIP guided sampling from a diffusion model."""
 
 import argparse
-from einops import rearrange, repeat
 import haiku as hk
 import jax
 import jax.numpy as jnp
@@ -11,7 +10,6 @@ from jax.tree_util import Partial
 import optax
 from pathlib import Path
 import pickle
-import time
 from torch.utils import data
 from datasets import load_dataset
 from tqdm import tqdm, trange
@@ -42,7 +40,7 @@ parser.add_argument('--num_workers', type=int, default=4)
 
 def get_dataset(train_set, batch_size, num_workers, seed):
     train_set = load_dataset(train_set, split='train')
-    train_sampler = data.DistributedSampler(
+    train_sampler = data.RandomSampler(
         train_set,
         seed=seed,
         drop_last=True

@@ -13,8 +13,6 @@ dependencies:
   - wandb
   - einops
   - ftfy
-  - jax
-  - jaxlib
   - numpy
   - optax
   - regex
