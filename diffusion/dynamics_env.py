@@ -32,7 +32,7 @@ def rl_sample_step(
     x_embed = image_fn(clip_params, normalize_fn((clip_in + 1) / 2))
     keys = jax.random.split(key, num=5)
     clip_loss, clip_grad = clip_loss_fn(x_embed, target)
-    control, timestep = policy.apply(keys[1], policy_params, x, clip_grad, t, x_embed, target, {})
+    control, timestep = policy.apply(policy_params, key[1], x, clip_grad, t, x_embed, target, {})
     v = diff_model.apply(diff_params, key[2], x, repeat(t, '-> n', n=x.shape[0]), extra_args)
     alpha, sigma = utils.t_to_alpha_sigma(t)
     v = v - control * (sigma / alpha)
