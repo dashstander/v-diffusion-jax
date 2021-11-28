@@ -56,7 +56,7 @@ class Dropout2d(hk.Module):
 def res_conv_block(c_mid, c_out, dropout_last=True):
     @hk.remat
     def inner(x, is_training):
-        x_skip_layer = hk.Conv2D(c_out, 1, with_bias=False, data_format='NCHW')
+        x_skip_layer = hk.Conv2D(c_out, 1, with_bias=False, padding='SAME', data_format='NCHW')
         x_skip = jax.lax.cond(x.shape[1] == c_out, lambda y: y, x_skip_layer, x)
         x = hk.Conv2D(c_mid, 3, data_format='NCHW')(x)
         x = jax.nn.relu(x)
