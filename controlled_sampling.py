@@ -17,7 +17,7 @@ from tqdm import tqdm, trange
 
 from diffusion import get_model, load_params, utils
 from diffusion.dynamics_env import rl_sample_step
-from diffusion.utils import to_pil_image
+# from diffusion.utils import to_pil_image
 
 MODULE_DIR = Path(__file__).resolve().parent
 import clip_jax
@@ -58,11 +58,10 @@ def get_dataset(train_set, batch_size, num_workers, seed):
     return train_dl
 
 
-
 def clip_loss_fn(image_fn, clip_params, patch_size, size, normalize_fn, pred, target):
-    clip_in = jax.image.resize(pred, (*pred.shape[:2], size, size), 'cubic')
     extent = patch_size // 2
-    clip_in = jnp.pad(clip_in, [(0, 0), (0, 0), (extent, extent), (extent, extent)], 'edge')
+    clip_in = jnp.pad(pred, [(0, 0), (0, 0), (extent, extent), (extent, extent)], 'edge')
+    clip_in = jax.image.resize(clip_in, (*pred.shape[:2], size, size), 'cubic')
     image_embed = image_fn(clip_params, normalize_fn((clip_in + 1) / 2))
     return jnp.sum(utils.spherical_dist_loss(image_embed, target)), image_embed
 
