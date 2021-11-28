@@ -22,7 +22,7 @@ def rl_sample_step(
     extra_args
 ):
     keys = jax.random.split(key, num=5)
-    value, clip_grad = clip_loss_fn(keys[0], x, target)
+    value, clip_grad = clip_loss_fn(x, target)
     clip_loss, x_embed = value
     control, timestep = policy.apply(keys[1], policy_params, x, clip_grad, t, x_embed, target, {})
     v = diff_model.apply(diff_params, key[2], x, repeat(t, '-> n', n=x.shape[0]), extra_args)
