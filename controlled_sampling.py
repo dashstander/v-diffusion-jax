@@ -5,6 +5,7 @@
 import argparse
 import haiku as hk
 import jax
+from jax.experimental import loops
 import jax.numpy as jnp
 from jax.tree_util import Partial
 import optax
@@ -150,24 +151,30 @@ def main():
         x = jax.random.normal(keys[1], [1, *diffusion_model.shape])
         total_loss = 0.0
         keys = jax.random.split(keys[2], num=max_steps)
-        for i in jnp.arange(max_steps):
-            x, time, clip_loss, control_loss = jax.lax.cond(
-                jnp.all(time > 0.0),
-                sample_step,
-                lambda *z: (z[3], z[4], 0.0, 0.0),
-                (
-                    policy_model,
-                    params,
-                    keys[i],
-                    x,
-                    time,
-                    target
+        with loops.Scope() as s:
+            s.total_loss = 0.0
+            s.time = time
+            s.x = x
+            for i in s.range(max_steps):
+                x, time, clip_loss, control_loss = jax.lax.cond(
+                    jnp.all(time > 0.0),
+                    sample_step,
+                    lambda *z: (z[3], z[4], 0.0, 0.0),
+                    (
+                        policy_model,
+                        params,
+                        keys[i],
+                        x,
+                        time,
+                        target
+                    )
                 )
-            )
-            #total_loss += clip_loss + control_loss
-            total_loss += clip_loss + control_loss
-        tqdm.write(f'Example finished, sampled in {i} steps with {total_loss} loss.')
-        return total_loss
+                s.x = x
+                s.time = time
+                s.total_loss += clip_loss + control_loss
+                s.i = i
+            tqdm.write(f'Example finished, sampled in {i} steps with {total_loss} loss.')
+            return s.total_loss
 
 
     def train_step(params, opt_state, key, target):
