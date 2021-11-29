@@ -151,10 +151,18 @@ def main():
         total_loss = 0.0
         keys = jax.random.split(keys[2], num=max_steps)
         for i in jnp.arange(max_steps):
-            x, time, clip_loss, control_loss = sample_step(policy_model, params, keys[i], x, time, target)
+            x, time, clip_loss, control_loss = jax.lax.cond(time > 0.0, 
+                sample_step,
+                lambda a, b, c, d, e, f: d, e, 0.0, 0.0,
+                policy_model,
+                params,
+                keys[i],
+                x,
+                time,
+                target
+            )
+            #total_loss += clip_loss + control_loss
             total_loss += clip_loss + control_loss
-            if time == 0.0:
-                break
         tqdm.write(f'Example finished, sampled in {i} steps with {total_loss} loss.')
         return total_loss
 
