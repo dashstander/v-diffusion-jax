@@ -145,9 +145,9 @@ def main():
     def control_episode(params, key, target, min_time, max_steps):
         keys = jax.random.split(key, num=3)
         time = jax.random.uniform(keys[0], [1], minval=min_time, maxval=1.0)
-        x = jax.random.normal(subkey, [1, *diffusion_model.shape])
+        x = jax.random.normal(keys[1], [1, *diffusion_model.shape])
         total_loss = 0.0
-        keys = jax.random.split(key, num=max_steps.astype(int))
+        keys = jax.random.split(keys[2], num=max_steps)
         for i in jnp.arange(max_steps):
             x, time, clip_loss, control_loss = sample_step(policy_model, params, keys[i], x, time, target)
             total_loss += clip_loss + control_loss
