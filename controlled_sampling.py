@@ -158,7 +158,7 @@ def main():
             for i in s.range(max_steps):
                 x, time, clip_loss, control_loss = jax.lax.cond(
                     jnp.all(time > 0.0),
-                    sample_step,
+                    lambda z: sample_step(*z),
                     lambda *z: (z[3], z[4], 0.0, 0.0),
                     (
                         policy_model,
