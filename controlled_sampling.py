@@ -143,8 +143,9 @@ def main():
     )
     
     @jax.checkpoint
-    def control_episode(params, key, target, min_time):
+    def control_episode(params, key, target):
         keys = jax.random.split(key, num=3)
+        min_time = 0.5
         time = jax.random.uniform(keys[0], [1], minval=min_time, maxval=1.0)
         x = jax.random.normal(keys[1], [1, *diffusion_model.shape])
         total_loss = 0.0
@@ -158,9 +159,9 @@ def main():
         return total_loss
 
 
-    def train_step(params, opt_state, key, target, min_time):
+    def train_step(params, opt_state, key, target):
         key, subkey = jax.random.split(key)
-        loss, grads = jax.value_and_grad(control_episode)(params, subkey, target, min_time)
+        loss, grads = jax.value_and_grad(control_episode)(params, subkey, target)
         updates, opt_state = opt.update(grads, opt_state)
         params = optax.apply_updates(params, updates)
         return loss, params, opt_state
@@ -170,7 +171,7 @@ def main():
         keys = jax.random.split(key, num=len(data_loader))
         for i, record in enumerate(tqdm(data_loader)):
             target = text_fn(clip_params, clip_jax.tokenize(record['text']))
-            loss, params, opt_state = train_step(params, opt_state, keys[i], target, 0)
+            loss, params, opt_state = train_step(params, opt_state, keys[i], target)
             if i % 50 == 0:
                 tqdm.write(f'Epoch {epoch}, iteration {i}, loss {loss:g}')
         return params, opt_state
