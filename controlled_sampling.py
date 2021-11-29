@@ -121,7 +121,7 @@ def main():
 
     image_fn, text_fn, clip_params, _ = clip_jax.load('ViT-B/16')
 
-    sample_step = jax.checkpoint(Partial(
+    sample_step = Partial(
         rl_sample_step,
         diffusion_model,
         diffusion_params,
@@ -139,7 +139,7 @@ def main():
         clip_size,
         normalize,
         extra_args={}
-    ))
+    )
     
     def control_episode(params, key, target, min_time, max_steps):
         keys = jax.random.split(key, num=3)
