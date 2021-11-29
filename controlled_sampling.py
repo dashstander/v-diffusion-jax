@@ -143,6 +143,7 @@ def main():
     
     @jax.checkpoint
     def control_episode(params, key, target, min_time, max_steps):
+        print(max_steps)
         keys = jax.random.split(key, num=3)
         time = jax.random.uniform(keys[0], [1], minval=min_time, maxval=1.0)
         x = jax.random.normal(keys[1], [1, *diffusion_model.shape])
