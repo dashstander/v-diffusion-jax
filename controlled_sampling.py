@@ -141,6 +141,7 @@ def main():
         extra_args={}
     )
     
+    @jax.checkpoint
     def control_episode(params, key, target, min_time, max_steps):
         keys = jax.random.split(key, num=3)
         time = jax.random.uniform(keys[0], [1], minval=min_time, maxval=1.0)

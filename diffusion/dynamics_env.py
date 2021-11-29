@@ -8,7 +8,7 @@ from diffusion import utils
 
 MODULE_DIR = Path(__file__).resolve().parent
 
-@jax.checkpoint
+
 def rl_sample_step(
     diff_model,
     diff_params,
