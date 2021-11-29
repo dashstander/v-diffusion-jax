@@ -206,7 +206,7 @@ def main():
             key, subkey = jax.random.split(key)
             #train_sampler.set_epoch(epoch)
             train_dl = get_dataset(args.train_set, args.batch_size, args.num_workers, seed)
-            params, opt_state = train_one_epoch(params, opt_state, train_dl, subkey, int(args.max_steps))
+            params, opt_state = train_one_epoch(params, opt_state, train_dl, subkey)
             epoch += 1
             tqdm.write('')
             if epoch % 5 == 0:
