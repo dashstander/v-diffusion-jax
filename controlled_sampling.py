@@ -121,7 +121,7 @@ def main():
 
     image_fn, text_fn, clip_params, _ = clip_jax.load('ViT-B/16')
 
-    sample_step = Partial(
+    sample_step = jax.checkpoint(Partial(
         rl_sample_step,
         diffusion_model,
         diffusion_params,
@@ -139,7 +139,7 @@ def main():
         clip_size,
         normalize,
         extra_args={}
-    )
+    ))
     
     def control_episode(params, key, target, min_time, max_steps):
         keys = jax.random.split(key, num=3)
@@ -148,7 +148,7 @@ def main():
         total_loss = 0.0
         keys = jax.random.split(key, num=max_steps)
         for i in jnp.arange(max_steps):
-            x, time, clip_loss, control_loss = jax.checkpoint(sample_step)(policy_model, params, keys[i], x, time, target)
+            x, time, clip_loss, control_loss = sample_step(policy_model, params, keys[i], x, time, target)
             total_loss += clip_loss + control_loss
             if time == 0.0:
                 break
