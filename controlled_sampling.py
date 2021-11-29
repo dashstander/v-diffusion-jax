@@ -148,7 +148,7 @@ def main():
         total_loss = 0.0
         keys = jax.random.split(key, num=max_steps)
         for i in jnp.arange(max_steps):
-            x, time, clip_loss, control_loss = sample_step(policy_model, params, keys[i], x, time, target)
+            x, time, clip_loss, control_loss = jax.checkpoint(sample_step)(policy_model, params, keys[i], x, time, target)
             total_loss += clip_loss + control_loss
             if time == 0.0:
                 break
