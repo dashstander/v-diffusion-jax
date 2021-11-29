@@ -152,7 +152,7 @@ def main():
         keys = jax.random.split(keys[2], num=max_steps)
         for i in jnp.arange(max_steps):
             x, time, clip_loss, control_loss = jax.lax.cond(
-                time > 0.0, 
+                time.item() > 0.0, 
                 sample_step,
                 lambda *z: (z[3], z[4], 0.0, 0.0),
                 (
