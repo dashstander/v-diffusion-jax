@@ -113,6 +113,7 @@ def main():
     seed = args.seed
     key = jax.random.PRNGKey(seed)
     key, subkey = jax.random.split(key)
+    max_steps = args.max_steps
 
     normalize = utils.make_normalize(
             mean=[0.48145466, 0.4578275, 0.40821073],
@@ -142,8 +143,7 @@ def main():
     )
     
     @jax.checkpoint
-    def control_episode(params, key, target, min_time, max_steps):
-        print(max_steps)
+    def control_episode(params, key, target, min_time):
         keys = jax.random.split(key, num=3)
         time = jax.random.uniform(keys[0], [1], minval=min_time, maxval=1.0)
         x = jax.random.normal(keys[1], [1, *diffusion_model.shape])
@@ -158,9 +158,9 @@ def main():
         return total_loss
 
 
-    def train_step(params, opt_state, key, target, min_time, max_steps):
+    def train_step(params, opt_state, key, target, min_time):
         key, subkey = jax.random.split(key)
-        loss, grads = jax.value_and_grad(control_episode)(params, subkey, target, min_time, max_steps)
+        loss, grads = jax.value_and_grad(control_episode)(params, subkey, target, min_time)
         updates, opt_state = opt.update(grads, opt_state)
         params = optax.apply_updates(params, updates)
         return loss, params, opt_state
