@@ -151,15 +151,18 @@ def main():
         total_loss = 0.0
         keys = jax.random.split(keys[2], num=max_steps)
         for i in jnp.arange(max_steps):
-            x, time, clip_loss, control_loss = jax.lax.cond(time > 0.0, 
+            x, time, clip_loss, control_loss = jax.lax.cond(
+                time > 0.0, 
                 sample_step,
                 lambda *z: (z[3], z[4], 0.0, 0.0),
-                policy_model,
-                params,
-                keys[i],
-                x,
-                time,
-                target
+                (
+                    policy_model,
+                    params,
+                    keys[i],
+                    x,
+                    time,
+                    target
+                )
             )
             #total_loss += clip_loss + control_loss
             total_loss += clip_loss + control_loss
