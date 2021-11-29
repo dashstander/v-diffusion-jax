@@ -41,7 +41,7 @@ def rl_sample_step(
     v = v - control * (sigma / alpha)
     #pred = x * alpha - v * sigma
     #eps = x * sigma + v * alpha
-    t_next = t - jnp.abs((timestep + jax.random.normal(keys[3], [1]) * 0.1))
+    t_next = t - jnp.abs((timestep + jax.random.normal(keys[3], ()) * 0.1))
     t_next = jnp.maximum(0, t_next)
     alpha_next, sigma_next = utils.t_to_alpha_sigma(t_next)
     adjusted_sigma = jnp.sqrt(sigma_next**2 - sigma**2)
