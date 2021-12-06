@@ -1,7 +1,31 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFile
+
+
+
+def ema_update(params, averaged_params, decay):
+    return jax.tree_map(
+        lambda p, a: p * (1 - decay) + a * decay,
+        params,
+        averaged_params
+    )
+
+
+def unreplicate(x):
+    return jax.tree_map(lambda x: x[0], x)
+
+
+def psplit(x, n):
+    return jax.tree_map(lambda x: jnp.stack(jnp.split(x, n)), x)
+
+
+def punsplit(x):
+    return jax.tree_map(
+        lambda x: jnp.reshape(x, (x.shape[0] * x.shape[1], *x.shape[2:])),
+        x
+    )
 
 
 def from_pil_image(x):
@@ -54,3 +78,16 @@ def get_ddpm_schedule(ddpm_t):
     log_snr = -jnp.log(jnp.expm1(1e-4 + 10 * ddpm_t**2))
     alpha, sigma = log_snr_to_alpha_sigma(log_snr)
     return alpha_sigma_to_t(alpha, sigma)
+
+
+class ToMode:
+    def __init__(self, mode):
+        self.mode = mode
+
+    def __call__(self, image):
+        return image.convert(self.mode)
+
+
+def worker_init_fn(worker_id):
+    ImageFile.LOAD_TRUNCATED_IMAGES = True
+

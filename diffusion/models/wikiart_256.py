@@ -13,8 +13,11 @@ class FourierFeatures(hk.Module):
         self.std = std
 
     def __call__(self, x):
-        w = hk.get_parameter('w', [self.output_size // 2, x.shape[1]],
-                             init=hk.initializers.RandomNormal(self.std, 0))
+        w = hk.get_parameter(
+            'w',
+            [self.output_size // 2, x.shape[1]],
+            init=hk.initializers.RandomNormal(self.std, 0)
+        )
         f = 2 * jnp.pi * x @ w.T
         return jnp.concatenate([jnp.cos(f), jnp.sin(f)], axis=-1)
 

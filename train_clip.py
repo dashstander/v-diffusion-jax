@@ -3,50 +3,76 @@
 import argparse
 import pickle
 import time
-
+import clip_jax
 from einops import rearrange, repeat
 import haiku as hk
+from jax.tree_util import Partial
 import jax
 import jax.numpy as jnp
 import optax
-from PIL import ImageFile
+import PIL
 from torch.utils import data
 from torchvision import datasets, transforms
 from tqdm import tqdm, trange
 
-from diffusion.utils import *
+from diffusion.utils import (
+    ema_update,
+    get_ddpm_schedule,
+    psplit, punsplit,
+    log_snr_to_alpha_sigma,
+    ToMode,
+    unreplicate,
+    to_pil_image,
+    worker_init_fn
+)
 from diffusion.models.clip_latent import diffusion_model
 
 
-def ema_update(params, averaged_params, decay):
-    return jax.tree_map(lambda p, a: p * (1 - decay) + a * decay, params, averaged_params)
+def ema_decay_schedule(decay, epoch):
+    if epoch < 20:
+        return 0.99
+    return decay
+
+def resume_training(checkpoint_file):
+    with open(checkpoint_file, mode='rb') as param_file: 
+        ckpt = pickle.load(param_file, 'rb')
+    epoch = ckpt['epoch']
+    params = jax.tree_map(jnp.array, ckpt['params'])
+    params_ema = jax.tree_map(jnp.array, ckpt['params_ema'])
+    opt_state = jax.tree_map(jnp.array, ckpt['opt_state'])
+    key = jax.tree_map(jnp.array, ckpt['key'])
+    del ckpt
+    log_file = open('losses.csv', 'a+')
+    return epoch, params, params_ema, opt_state, key, log_file
 
 
-p_ema_update = jax.pmap(ema_update, in_axes=(0, 0, None))
+def get_dataloader(image_size, batch_size, num_processes, local_rank, seed, train_set_dir):
+    tf = transforms.Compose([
+        ToMode('RGB'),
+        transforms.Resize(image_size, interpolation=PIL.Image.LANCZOS),
+        transforms.CenterCrop(image_size),
+        transforms.ToTensor(),
+        transforms.Normalize([0.5], [0.5]),
+    ])
+    train_set = datasets.ImageFolder(train_set_dir, transform=tf)
+    train_sampler = data.DistributedSampler(
+        train_set,
+        num_processes,
+        local_rank,
+        seed=seed,
+        drop_last=True
+    )
+    train_dl = data.DataLoader(
+        train_set,
+        batch_size,
+        sampler=train_sampler,
+        drop_last=True,
+        worker_init_fn=worker_init_fn,
+        num_workers=48,
+        persistent_workers=True
+    )
+    return train_dl, train_sampler
 
-
-def unreplicate(x):
-    return jax.tree_map(lambda x: x[0], x)
-
-
-def psplit(x, n):
-    return jax.tree_map(lambda x: jnp.stack(jnp.split(x, n)), x)
-
-
-def punsplit(x):
-    return jax.tree_map(lambda x: jnp.reshape(x, (x.shape[0] * x.shape[1], *x.shape[2:])), x)
-
-
-class ToMode:
-    def __init__(self, mode):
-        self.mode = mode
-
-    def __call__(self, image):
-        return image.convert(self.mode)
-
-
-def worker_init_fn(worker_id):
-    ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 def main():
@@ -55,6 +81,7 @@ def main():
                    help='the batch size')
     p.add_argument('--ema-decay', type=float, default=0.999,
                    help='the EMA decay')
+    p.add_argument('--gamma', type=float, default=2)
     p.add_argument('--resume', type=str,
                    help='the checkpoint to resume from')
     p.add_argument('--seed', type=int, default=0,
@@ -68,76 +95,80 @@ def main():
     num_processes = jax.process_count()
     local_rank = jax.process_index()
 
+    gamma = args.gamma
     size = 256
     shape = (3, size, size)
 
-    tf = transforms.Compose([
-        ToMode('RGB'),
-        transforms.Resize(size, interpolation=transforms.InterpolationMode.LANCZOS),
-        transforms.CenterCrop(size),
-        transforms.ToTensor(),
-        transforms.Normalize([0.5], [0.5]),
-    ])
-    train_set = datasets.ImageFolder(args.train_set, transform=tf)
-    train_sampler = data.DistributedSampler(train_set, num_processes, local_rank,
-                                            seed=args.seed, drop_last=True)
-    train_dl = data.DataLoader(train_set, args.batch_size, sampler=train_sampler, drop_last=True,
-                               worker_init_fn=worker_init_fn, num_workers=48,
-                               persistent_workers=True)
+    train_dl, train_sampler = get_dataloader(
+        size,
+        args.batch_size,
+        num_processes,
+        local_rank,
+        args.seed,
+        args.train_set
+    )
+
+    image_fn, _, clip_params, _ = clip_jax.load('ViT-B/16')
+    clip_patch_size = 16
+    clip_size = 224
+
+    p_ema_update = jax.pmap(ema_update, in_axes=(0, 0, None))
+
 
     model = hk.transform(diffusion_model)
 
     opt = optax.adam(5e-5)
-
+    key = jax.random.PRNGKey(args.seed)
+    
     if not args.resume:
+        key, subkey = jax.random.split(key)
         epoch = 0
-        params = model.init(jax.random.PRNGKey(args.seed),
-                            jnp.zeros([1, *shape]),
-                            jnp.zeros([1]),
-                            {},
-                            jnp.array(0))
+        params = model.init(
+            subkey,
+            jnp.zeros([1, *shape]),
+            jnp.zeros([1]),
+            jnp.zeros([1, 512]),
+            {},
+            jnp.array(0.0)
+        )
         params = jax.tree_map(lambda x: x / 2, params)
         params_ema = params
         opt_state = opt.init(params)
         log_file = open('losses.csv', 'w')
         print('epoch', 'i', 'time', 'loss', sep=',', file=log_file, flush=True)
     else:
-        ckpt = pickle.load(open(args.resume, 'rb'))
-        epoch = ckpt['epoch']
-        params = jax.tree_map(jnp.array, ckpt['params'])
-        params_ema = jax.tree_map(jnp.array, ckpt['params_ema'])
-        opt_state = jax.tree_map(jnp.array, ckpt['opt_state'])
-        del ckpt
-        log_file = open('losses.csv', 'a+')
+        epoch, params, params_ema, opt_state, key, log_file = resume_training(args.resume)
 
+    get_ema_decay = Partial(ema_decay_schedule, args.ema_decay)
+        
     print('Model parameters:', hk.data_structures.tree_size(params))
 
     params = jax.device_put_replicated(params, jax.local_devices())
     params_ema = jax.device_put_replicated(params_ema, jax.local_devices())
     opt_state = jax.device_put_replicated(opt_state, jax.local_devices())
 
-    key = jax.random.PRNGKey(args.seed)
     key = jax.random.split(key, num_processes)[local_rank]
 
-    def get_ema_decay(epoch):
-        if epoch < 20:
-            return 0.99
-        return args.ema_decay
 
-    def compute_loss(params, key, inputs, extra_args, is_training):
+    def compute_loss(params, key, images, embeds, extra_args, is_training):
         key, subkey = jax.random.split(key)
-        t = jax.random.uniform(subkey, inputs.shape[:1])
+        t = jax.random.uniform(subkey, images.shape[:1])
         log_snrs = get_ddpm_schedule(get_ddpm_schedule(t))
         alphas, sigmas = log_snr_to_alpha_sigma(log_snrs)
         key, subkey = jax.random.split(key)
-        noise = jax.random.normal(subkey, inputs.shape)
-        noised_inputs = inputs * alphas[:, None, None, None] + noise * sigmas[:, None, None, None]
-        targets = noise * alphas[:, None, None, None] - inputs * sigmas[:, None, None, None]
-        v = model.apply(params, key, noised_inputs, log_snrs, extra_args, is_training)
-        return jnp.mean(jnp.square(v - targets)) * 0.280219
+        image_noise = jax.random.normal(subkey, images.shape)
+        embed_noise = jax.random.normal(subkey, embeds.shape)
+        noised_images = images * alphas[:, None, None, None] + image_noise * sigmas[:, None, None, None]
+        noised_embeds = embeds * alphas[:, None] + embed_noise * sigmas[:, None]
+        image_targets = image_noise * alphas[:, None, None, None] - images * sigmas[:, None, None, None]
+        embed_targets = embed_noise * alphas[:, None] - embeds * sigmas[:, None]
+        v_im, v_emb = model.apply(params, key, noised_images, log_snrs, noised_embeds, extra_args, is_training)
+        im_loss = jnp.mean(jnp.square(v_im - image_targets)) * 0.280219 
+        emb_loss = jnp.mean(jnp.square(v_emb - embed_targets))
+        return im_loss + gamma * emb_loss
 
-    def train_step(params, opt_state, key, inputs, extra_args, axis_name='i'):
-        loss_grads = jax.value_and_grad(compute_loss)(params, key, inputs, extra_args, jnp.array(1))
+    def train_step(params, opt_state, key, inputs, embeddings, extra_args, axis_name='i'):
+        loss_grads = jax.value_and_grad(compute_loss)(params, key, inputs, embeddings, extra_args, jnp.array(1))
         loss, grads = jax.lax.pmean(loss_grads, axis_name)
         updates, opt_state = opt.update(grads, opt_state)
         params = optax.apply_updates(params, updates)
@@ -146,10 +177,12 @@ def main():
     def train_one_epoch(params, params_ema, opt_state, key):
         pmap_train_step = jax.pmap(train_step, axis_name='i')
         for i, batch in enumerate(tqdm(train_dl)):
-            inputs, _ = jax.tree_map(lambda x: psplit(jnp.array(x), num_local_devices), batch)
+            batch_embeds = image_fn(clip_params, jnp.array(batch))
+            images, _ = jax.tree_map(lambda x: psplit(jnp.array(x), num_local_devices), batch)
+            embeds, _ = jax.tree_map(lambda x: psplit(x, num_local_devices), batch_embeds)
             key, subkey = jax.random.split(key)
             keys = jnp.stack(jax.random.split(subkey, num_local_devices))
-            loss, params, opt_state = pmap_train_step(params, opt_state, keys, inputs, {})
+            loss, params, opt_state = pmap_train_step(params, opt_state, keys, images, embeds, {})
             params_ema = p_ema_update(params, params_ema, get_ema_decay(epoch))
             print(epoch, i, time.time(), unreplicate(loss), sep=',', file=log_file, flush=True)
             if i % 50 == 0:
@@ -158,8 +191,14 @@ def main():
 
     def sample_step(params, key, x_t, log_snr, log_snr_next, eta, extra_args):
         dummy_key = jax.random.PRNGKey(0)
-        v = model.apply(params, dummy_key, x_t, repeat(log_snr, '-> n', n=x_t.shape[0]), extra_args,
-                        jnp.array(0))
+        v = model.apply(
+            params,
+            dummy_key,
+            x_t,
+            repeat(log_snr, '-> n', n=x_t.shape[0]),
+            extra_args,
+            jnp.array(0)
+        )
         alpha, sigma = log_snr_to_alpha_sigma(log_snr)
         pred = x_t * alpha - v * sigma
         eps = x_t * sigma + v * alpha
@@ -178,39 +217,59 @@ def main():
             key, subkey = jax.random.split(key)
             keys = jnp.stack(jax.random.split(subkey, num_local_devices))
             if i < steps - 1:
-                x_t, _ = pmap_sample_step(params, keys, x_t, log_snrs[i], log_snrs[i + 1], eta,
-                                          extra_args)
+                x_t, _ = pmap_sample_step(
+                    params,
+                    keys,
+                    x_t,
+                    log_snrs[i],
+                    log_snrs[i + 1],
+                    eta,
+                    extra_args
+                )
             else:
-                _, pred = pmap_sample_step(params, keys, x_t, log_snrs[i], log_snrs[i], eta,
-                                           extra_args)
+                _, pred = pmap_sample_step(
+                    params,
+                    keys,
+                    x_t,
+                    log_snrs[i],
+                    log_snrs[i],
+                    eta,
+                    extra_args
+                )
         return pred
 
     def save():
-        if local_rank == 0:
-            obj = {'params': unreplicate(params),
-                   'params_ema': unreplicate(params_ema),
-                   'opt_state': unreplicate(opt_state),
-                   'epoch': epoch}
-            with open('model.pkl', 'wb') as f:
-                pickle.dump(obj, f)
+        if local_rank != 0:
+            return
+        obj = {
+            'params': unreplicate(params),
+            'params_ema': unreplicate(params_ema),
+            'opt_state': unreplicate(opt_state),
+            'epoch': epoch,
+            'key': key
+        }
+        with open('model.pkl', 'wb') as f:
+            pickle.dump(obj, f)
 
     def demo(key):
-        if local_rank == 0:
-            tqdm.write('Sampling...')
-            outs = []
-            for i in trange(1):
-                key, subkey = jax.random.split(key)
-                noise = jax.random.normal(subkey, [8, 8, *shape])
-                key, subkey = jax.random.split(key)
-                out = punsplit(sample(params_ema, subkey, noise, 1000, 1, {}))
-                outs.append(out)
-            out = jnp.concatenate(outs, axis=0)
-            grid = rearrange(out, '(s1 s2) c h w -> c (s1 h) (s2 w)', s1=8)
-            to_pil_image(grid).save(f'demo_{epoch:06}.png')
+        if local_rank != 0:
+            return
+        tqdm.write('Sampling...')
+        outs = []
+        for _ in trange(1):
+            key, subkey = jax.random.split(key)
+            noise = jax.random.normal(subkey, [8, 8, *shape])
+            key, subkey = jax.random.split(key)
+            out = punsplit(sample(params_ema, subkey, noise, 1000, 1, {}))
+            outs.append(out)
+        out = jnp.concatenate(outs, axis=0)
+        grid = rearrange(out, '(s1 s2) c h w -> c (s1 h) (s2 w)', s1=8)
+        to_pil_image(grid).save(f'demo_{epoch:06}.png')
 
     try:
         key, subkey = jax.random.split(key)
-        demo(subkey)
+        if epoch > 0:
+            demo(subkey)
         while True:
             tqdm.write(f'Epoch {epoch}')
             key, subkey = jax.random.split(key)

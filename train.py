@@ -64,7 +64,7 @@ def main():
 
     tf = transforms.Compose([
         ToMode('RGB'),
-        transforms.Resize(size, interpolation=transforms.InterpolationMode.LANCZOS),
+        transforms.Resize(size, interpolation=Image.LANCZOS),
         transforms.CenterCrop(size),
         transforms.ToTensor(),
         transforms.Normalize([0.5], [0.5]),
@@ -120,7 +120,7 @@ def main():
     def compute_loss(params, key, inputs, extra_args, is_training):
         key, subkey = jax.random.split(key)
         t = jax.random.uniform(subkey, inputs.shape[:1])
-        log_snrs = get_ddpm_schedule(get_ddpm_schedule(t))
+        log_snrs = get_ddpm_schedule(get_ddpm_schedule(t)) 
         alphas, sigmas = log_snr_to_alpha_sigma(log_snrs)
         key, subkey = jax.random.split(key)
         noise = jax.random.normal(subkey, inputs.shape)
