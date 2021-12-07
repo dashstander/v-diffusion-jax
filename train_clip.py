@@ -254,7 +254,7 @@ def main():
                 embeds,
                 {}
             )
-            print(aux_data)
+            #print(aux_data)
             params_ema = p_ema_update(params, params_ema, get_ema_decay(epoch))
             aux_data = unreplicate(aux_data)
             batch_log = {'image_loss': aux_data[0], 'embedding_loss': aux_data[1], 'epoch': epoch, 'loss': unreplicate(loss)}
