@@ -175,7 +175,7 @@ def main():
 
     model = hk.transform(diffusion_model)
 
-    opt = optax.adam(5e-5)
+    opt = optax.noisy_sgd(5e-5)
     key = jax.random.PRNGKey(args.seed)
     
     if not args.resume:
