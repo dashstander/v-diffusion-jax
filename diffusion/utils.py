@@ -90,4 +90,3 @@ class ToMode:
 
 def worker_init_fn(worker_id):
     ImageFile.LOAD_TRUNCATED_IMAGES = True
-

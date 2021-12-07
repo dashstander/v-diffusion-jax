@@ -1,8 +1,7 @@
 dm-haiku
 einops
 ftfy
-jax
-jaxlib
+google-cloud-storage
 numpy
 optax
 regex

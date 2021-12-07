@@ -12,9 +12,10 @@ import jax.numpy as jnp
 import optax
 import PIL
 from torch.utils import data
-from torchvision import datasets, transforms
+from torchvision import transforms
 from tqdm import tqdm, trange
 
+from diffusion.cloud_storage import BucketDataset
 from diffusion.utils import (
     ema_update,
     get_ddpm_schedule,
@@ -27,6 +28,8 @@ from diffusion.utils import (
 )
 from diffusion.models.clip_latent import diffusion_model
 
+
+bucket = 'clip-diffusion-01'
 
 def ema_decay_schedule(decay, epoch):
     if epoch < 20:
@@ -54,7 +57,7 @@ def get_dataloader(image_size, batch_size, num_processes, local_rank, seed, trai
         transforms.ToTensor(),
         transforms.Normalize([0.5], [0.5]),
     ])
-    train_set = datasets.ImageFolder(train_set_dir, transform=tf)
+    train_set = BucketDataset(bucket, train_set_dir, transform=tf)
     train_sampler = data.DistributedSampler(
         train_set,
         num_processes,
@@ -72,6 +75,57 @@ def get_dataloader(image_size, batch_size, num_processes, local_rank, seed, trai
         persistent_workers=True
     )
     return train_dl, train_sampler
+
+
+def make_normalize(mean, std):
+    mean = jnp.array(mean).reshape([3, 1, 1])
+    std = jnp.array(std).reshape([3, 1, 1])
+
+    def inner(image):
+        return (image - mean) / std
+    return inner
+
+
+def make_clip_embed_fn(image_fn, params, normalize):
+    clip_size = 224
+    clip_patch_size = 16
+    # extent = clip_patch_size // 2
+    def f(batch):
+        clip_in = jax.image.resize(batch, (*batch.shape[:2], clip_size, clip_size), 'cubic')
+        #print(clip_in.shape)
+        #clip_in = jnp.pad(clip_in, [(0, 0), (0, 0), (extent, extent), (extent, extent)], 'edge')
+        #print(clip_in.shape)
+        return image_fn(params, normalize((clip_in + 1) / 2))
+    return f
+
+
+def make_forward_fn(model, opt, gamma):
+    def compute_loss(params, key, images, embeds, extra_args, is_training):
+        key, subkey = jax.random.split(key)
+        t = jax.random.uniform(subkey, images.shape[:1])
+        log_snrs = get_ddpm_schedule(get_ddpm_schedule(t))
+        alphas, sigmas = log_snr_to_alpha_sigma(log_snrs)
+        key, subkey = jax.random.split(key)
+        image_noise = jax.random.normal(subkey, images.shape)
+        embed_noise = jax.random.normal(subkey, embeds.shape)
+        noised_images = images * alphas[:, None, None, None] + image_noise * sigmas[:, None, None, None]
+        noised_embeds = embeds * alphas[:, None] + embed_noise * sigmas[:, None]
+        image_targets = image_noise * alphas[:, None, None, None] - images * sigmas[:, None, None, None]
+        embed_targets = embed_noise * alphas[:, None] - embeds * sigmas[:, None]
+        v_im, v_emb = model.apply(params, key, noised_images, log_snrs, noised_embeds, extra_args, is_training)
+        im_loss = jnp.mean(jnp.square(v_im - image_targets)) * 0.280219 
+        emb_loss = jnp.mean(jnp.square(v_emb - embed_targets))
+        return im_loss + gamma * emb_loss
+
+    def train_step(params, opt_state, key, inputs, embeddings, extra_args, axis_name='i'):
+        loss_grads = jax.value_and_grad(compute_loss)(params, key, inputs, embeddings, extra_args, jnp.array(1))
+        loss, grads = jax.lax.pmean(loss_grads, axis_name)
+        updates, opt_state = opt.update(grads, opt_state)
+        params = optax.apply_updates(params, updates)
+        return loss, params, opt_state
+    
+    return train_step
+
 
 
 
@@ -95,7 +149,6 @@ def main():
     num_processes = jax.process_count()
     local_rank = jax.process_index()
 
-    gamma = args.gamma
     size = 256
     shape = (3, size, size)
 
@@ -107,10 +160,15 @@ def main():
         args.seed,
         args.train_set
     )
+    normalize = make_normalize(
+        mean=[0.48145466, 0.4578275, 0.40821073],
+        std=[0.26862954, 0.26130258, 0.27577711]
+    )
 
     image_fn, _, clip_params, _ = clip_jax.load('ViT-B/16')
-    clip_patch_size = 16
-    clip_size = 224
+
+
+    clip_embed = make_clip_embed_fn(image_fn, clip_params, normalize)
 
     p_ema_update = jax.pmap(ema_update, in_axes=(0, 0, None))
 
@@ -140,6 +198,7 @@ def main():
         epoch, params, params_ema, opt_state, key, log_file = resume_training(args.resume)
 
     get_ema_decay = Partial(ema_decay_schedule, args.ema_decay)
+
         
     print('Model parameters:', hk.data_structures.tree_size(params))
 
@@ -149,35 +208,13 @@ def main():
 
     key = jax.random.split(key, num_processes)[local_rank]
 
+    train_step = jax.jit(make_forward_fn(model, opt, args.gamma))
 
-    def compute_loss(params, key, images, embeds, extra_args, is_training):
-        key, subkey = jax.random.split(key)
-        t = jax.random.uniform(subkey, images.shape[:1])
-        log_snrs = get_ddpm_schedule(get_ddpm_schedule(t))
-        alphas, sigmas = log_snr_to_alpha_sigma(log_snrs)
-        key, subkey = jax.random.split(key)
-        image_noise = jax.random.normal(subkey, images.shape)
-        embed_noise = jax.random.normal(subkey, embeds.shape)
-        noised_images = images * alphas[:, None, None, None] + image_noise * sigmas[:, None, None, None]
-        noised_embeds = embeds * alphas[:, None] + embed_noise * sigmas[:, None]
-        image_targets = image_noise * alphas[:, None, None, None] - images * sigmas[:, None, None, None]
-        embed_targets = embed_noise * alphas[:, None] - embeds * sigmas[:, None]
-        v_im, v_emb = model.apply(params, key, noised_images, log_snrs, noised_embeds, extra_args, is_training)
-        im_loss = jnp.mean(jnp.square(v_im - image_targets)) * 0.280219 
-        emb_loss = jnp.mean(jnp.square(v_emb - embed_targets))
-        return im_loss + gamma * emb_loss
-
-    def train_step(params, opt_state, key, inputs, embeddings, extra_args, axis_name='i'):
-        loss_grads = jax.value_and_grad(compute_loss)(params, key, inputs, embeddings, extra_args, jnp.array(1))
-        loss, grads = jax.lax.pmean(loss_grads, axis_name)
-        updates, opt_state = opt.update(grads, opt_state)
-        params = optax.apply_updates(params, updates)
-        return loss, params, opt_state
 
     def train_one_epoch(params, params_ema, opt_state, key):
         pmap_train_step = jax.pmap(train_step, axis_name='i')
         for i, batch in enumerate(tqdm(train_dl)):
-            batch_embeds = image_fn(clip_params, jnp.array(batch))
+            batch_embeds = clip_embed(jnp.array(batch))
             images, _ = jax.tree_map(lambda x: psplit(jnp.array(x), num_local_devices), batch)
             embeds, _ = jax.tree_map(lambda x: psplit(x, num_local_devices), batch_embeds)
             key, subkey = jax.random.split(key)
