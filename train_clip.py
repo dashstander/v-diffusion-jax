@@ -148,7 +148,9 @@ def make_forward_fn(model, opt, gamma):
     def train_step(params, opt_state, key, inputs, embeddings, extra_args, axis_name='i'):
         loss_grads, aux_data = jax.value_and_grad(compute_loss, has_aux=True)(params, key, inputs, embeddings, extra_args, jnp.array(1))
         loss, grads = jax.lax.pmean(loss_grads, axis_name)
-        im_loss, emb_loss = jax.lax.pmean(aux_data, axis_name)
+        im_loss, emb_loss = aux_data
+        im_loss = jax.lax.pmean(im_loss, axis_name)
+        emb_loss = jax.lax.pmean(emb_loss, axis_name)
         updates, opt_state = opt.update(grads, opt_state)
         params = optax.apply_updates(params, updates)
         return loss, params, opt_state, im_loss, emb_loss
