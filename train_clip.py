@@ -105,6 +105,7 @@ def make_clip_embed_fn(image_fn, params, normalize):
 
 
 def make_forward_fn(model, opt, gamma):
+
     def compute_loss(params, key, images, embeds, extra_args, is_training):
         key, subkey = jax.random.split(key)
         t = jax.random.uniform(subkey, images.shape[:1])
@@ -120,21 +121,16 @@ def make_forward_fn(model, opt, gamma):
         v_im, v_emb = model.apply(params, key, noised_images, log_snrs, noised_embeds, extra_args, is_training)
         im_loss = jnp.mean(jnp.square(v_im - image_targets)) * 0.280219 
         emb_loss = jnp.mean(jnp.square(v_emb - embed_targets))
-        return (
-            im_loss + gamma * emb_loss,
-            {
-                'image_loss': im_loss,
-                'emb_loss': emb_loss,
-                'id': jax.process_index()
-            }
-        )
+        im_loss, emb_loss = host_callback.id_print((im_loss, emb_loss), what='Image, Embed')
+        return im_loss + gamma * emb_loss
+        
 
     def train_step(params, opt_state, key, inputs, embeddings, extra_args, axis_name='i'):
-        loss_grads, aux_data = jax.value_and_grad(compute_loss, has_aux=True)(params, key, inputs, embeddings, extra_args, jnp.array(1))
+        loss_grads = jax.value_and_grad(compute_loss)(params, key, inputs, embeddings, extra_args, jnp.array(1))
         loss, grads = jax.lax.pmean(loss_grads, axis_name)
         updates, opt_state = opt.update(grads, opt_state)
         params = optax.apply_updates(params, updates)
-        return loss, params, opt_state, aux_data
+        return loss, params, opt_state
     
     return train_step
 
@@ -231,9 +227,8 @@ def main():
             embeds = jax.tree_map(lambda x: psplit(x, num_local_devices), batch_embeds)
             key, subkey = jax.random.split(key)
             keys = jnp.stack(jax.random.split(subkey, num_local_devices))
-            loss, params, opt_state, aux_data = pmap_train_step(params, opt_state, keys, images, embeds, {})
+            loss, params, opt_state = pmap_train_step(params, opt_state, keys, images, embeds, {})
             params_ema = p_ema_update(params, params_ema, get_ema_decay(epoch))
-            print(aux_data)
             print(epoch, i, time.time(), unreplicate(loss), sep=',', file=log_file, flush=True)
             if i % 50 == 0:
                 tqdm.write(f'Epoch {epoch}, iteration {i}, loss {unreplicate(loss):g}')
