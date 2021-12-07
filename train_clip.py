@@ -14,6 +14,7 @@ import PIL
 from torch.utils import data
 from torchvision import transforms
 from tqdm import tqdm, trange
+import warnings
 
 from diffusion.cloud_storage import BucketDataset
 from diffusion.utils import (
@@ -28,6 +29,7 @@ from diffusion.utils import (
 )
 from diffusion.models.clip_latent import diffusion_model
 
+warnings.simplefilter('error', PIL.Image.DecompressionBombWarning)
 
 bucket = 'clip-diffusion-01'
 
@@ -115,6 +117,7 @@ def make_forward_fn(model, opt, gamma):
         v_im, v_emb = model.apply(params, key, noised_images, log_snrs, noised_embeds, extra_args, is_training)
         im_loss = jnp.mean(jnp.square(v_im - image_targets)) * 0.280219 
         emb_loss = jnp.mean(jnp.square(v_emb - embed_targets))
+        print(f'Loss image: {im_loss}, embedding: {emb_loss}')
         return im_loss + gamma * emb_loss
 
     def train_step(params, opt_state, key, inputs, embeddings, extra_args, axis_name='i'):
@@ -208,7 +211,7 @@ def main():
 
     key = jax.random.split(key, num_processes)[local_rank]
 
-    train_step = jax.jit(make_forward_fn(model, opt, args.gamma))
+    train_step = make_forward_fn(model, opt, args.gamma)
 
 
     def train_one_epoch(params, params_ema, opt_state, key):
