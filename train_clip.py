@@ -184,7 +184,7 @@ def main():
     model = hk.transform(diffusion_model)
 
     opt = optax.chain(
-        optax.noisy_sgd(5e-5),
+        optax.sgd(5e-5),
         optax.clip(1)
     )
     key = jax.random.PRNGKey(args.seed)
