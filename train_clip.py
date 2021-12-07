@@ -33,8 +33,27 @@ from diffusion.models.clip_latent import diffusion_model
 warnings.simplefilter('ignore', PIL.Image.DecompressionBombWarning)
 
 from jax.experimental import host_callback
+import wandb
 
 bucket = 'clip-diffusion-01'
+
+
+p = argparse.ArgumentParser()
+p.add_argument('--batch-size', '-bs', type=int, default=64,
+                   help='the batch size')
+p.add_argument('--ema-decay', type=float, default=0.999,
+                   help='the EMA decay')
+p.add_argument('--gamma', type=float, default=1.0)
+p.add_argument('--resume', type=str,
+                   help='the checkpoint to resume from')
+p.add_argument('--seed', type=int, default=0,
+                   help='the random seed')
+p.add_argument('--train-set', type=str, required=True,
+                   help='the training set')
+p.add_argument('--epochs', type=int, default=10)
+p.add_argument('--lr', type=float, default=0.00005)
+p.add_argument('--grad-clip', type=float, default=1.0)
+
 
 def ema_decay_schedule(decay, epoch):
     if epoch < 20:
@@ -122,15 +141,16 @@ def make_forward_fn(model, opt, gamma):
         im_loss = jnp.mean(jnp.square(v_im - image_targets)) * 0.280219 
         emb_loss = jnp.mean(jnp.square(v_emb - embed_targets))
         #im_loss, emb_loss = host_callback.id_print((im_loss, emb_loss), what='Image, Embed')
-        return im_loss + gamma * emb_loss
+        return 0.5 * (im_loss + gamma * emb_loss), (im_loss, emb_loss)
         
 
     def train_step(params, opt_state, key, inputs, embeddings, extra_args, axis_name='i'):
-        loss_grads = jax.value_and_grad(compute_loss)(params, key, inputs, embeddings, extra_args, jnp.array(1))
+        loss_grads, aux_data = jax.value_and_grad(compute_loss, has_aux=True)(params, key, inputs, embeddings, extra_args, jnp.array(1))
         loss, grads = jax.lax.pmean(loss_grads, axis_name)
+        im_loss, emb_loss = jax.lax.pmean(aux_data, axis_name)
         updates, opt_state = opt.update(grads, opt_state)
         params = optax.apply_updates(params, updates)
-        return loss, params, opt_state
+        return loss, params, opt_state, im_loss, emb_loss
     
     return train_step
 
@@ -138,19 +158,13 @@ def make_forward_fn(model, opt, gamma):
 
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument('--batch-size', '-bs', type=int, default=64,
-                   help='the batch size')
-    p.add_argument('--ema-decay', type=float, default=0.999,
-                   help='the EMA decay')
-    p.add_argument('--gamma', type=float, default=2)
-    p.add_argument('--resume', type=str,
-                   help='the checkpoint to resume from')
-    p.add_argument('--seed', type=int, default=0,
-                   help='the random seed')
-    p.add_argument('--train-set', type=str, required=True,
-                   help='the training set')
     args = p.parse_args()
+
+    wandb.init(
+        project="clip-diffusion",
+        entity="dstander",
+        config=args
+    )
 
     num_devices = jax.device_count()
     num_local_devices = jax.local_device_count()
@@ -184,8 +198,8 @@ def main():
     model = hk.transform(diffusion_model)
 
     opt = optax.chain(
-        optax.sgd(5e-5),
-        optax.clip(1)
+        optax.sgd(args.lr),
+        optax.clip(args.grad_clip)
     )
     key = jax.random.PRNGKey(args.seed)
     
@@ -230,9 +244,22 @@ def main():
             embeds = jax.tree_map(lambda x: psplit(x, num_local_devices), batch_embeds)
             key, subkey = jax.random.split(key)
             keys = jnp.stack(jax.random.split(subkey, num_local_devices))
-            loss, params, opt_state = pmap_train_step(params, opt_state, keys, images, embeds, {})
+            loss, params, opt_state, im_loss, emb_loss = pmap_train_step(
+                params,
+                opt_state,
+                keys,
+                images,
+                embeds,
+                {}
+            )
             params_ema = p_ema_update(params, params_ema, get_ema_decay(epoch))
-            print(epoch, i, time.time(), unreplicate(loss), sep=',', file=log_file, flush=True)
+            wandb.log(
+                'epoch': epoch,
+                'loss': unreplicate(loss),
+                'image_loss': unreplicate(im_loss),
+                'embedding_loss': unreplicate(emb_loss)
+            )
+            # print(epoch, i, time.time(), unreplicate(loss), sep=',', file=log_file, flush=True)
             if i % 50 == 0:
                 tqdm.write(f'Epoch {epoch}, iteration {i}, loss {unreplicate(loss):g}')
         return params, params_ema, opt_state
@@ -318,16 +345,16 @@ def main():
         key, subkey = jax.random.split(key)
         if epoch > 0:
             demo(subkey)
-        while True:
+        while epoch < args.epochs:
             tqdm.write(f'Epoch {epoch}')
             key, subkey = jax.random.split(key)
             train_sampler.set_epoch(epoch)
             params, params_ema, opt_state = train_one_epoch(params, params_ema, opt_state, subkey)
             epoch += 1
             tqdm.write('')
-            if epoch % 5 == 0:
-                key, subkey = jax.random.split(key)
-                demo(subkey)
+            #if epoch % 5 == 0:
+            #    key, subkey = jax.random.split(key)
+            #    demo(subkey)
             if epoch % 5 == 0:
                 save()
     except KeyboardInterrupt:

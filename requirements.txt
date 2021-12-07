@@ -9,3 +9,4 @@ Pillow
 torch
 torchvision
 tqdm
+wandb
