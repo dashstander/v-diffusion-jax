@@ -255,11 +255,11 @@ def main():
                 {}
             )
             params_ema = p_ema_update(params, params_ema, get_ema_decay(epoch))
-            wandb.log(
+            wandb.log({
                 'epoch': epoch,
                 'loss': unreplicate(loss),
                 'image_loss': unreplicate(im_loss),
-                'embedding_loss': unreplicate(emb_loss)
+                'embedding_loss': unreplicate(emb_loss)}
             )
             # print(epoch, i, time.time(), unreplicate(loss), sep=',', file=log_file, flush=True)
             if i % 50 == 0:
