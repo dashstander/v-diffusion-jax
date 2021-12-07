@@ -15,6 +15,7 @@ from torch.utils import data
 from torchvision import transforms
 from tqdm import tqdm, trange
 import warnings
+import numpy as np
 
 from diffusion.cloud_storage import BucketDataset
 from diffusion.utils import (
@@ -119,7 +120,8 @@ def make_forward_fn(model, opt, gamma):
         v_im, v_emb = model.apply(params, key, noised_images, log_snrs, noised_embeds, extra_args, is_training)
         im_loss = jnp.mean(jnp.square(v_im - image_targets)) * 0.280219 
         emb_loss = jnp.mean(jnp.square(v_emb - embed_targets))
-        host_callback.id_print(image=im_loss, embedding=emb_loss)
+        print_str = f'Image: {np.array2string(im_loss)}\nEmbedding: {np.array2string(emb_loss)}'
+        host_callback.id_print(print_str)
         return im_loss + gamma * emb_loss
 
     def train_step(params, opt_state, key, inputs, embeddings, extra_args, axis_name='i'):
