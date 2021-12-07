@@ -121,7 +121,7 @@ def make_forward_fn(model, opt, gamma):
         v_im, v_emb = model.apply(params, key, noised_images, log_snrs, noised_embeds, extra_args, is_training)
         im_loss = jnp.mean(jnp.square(v_im - image_targets)) * 0.280219 
         emb_loss = jnp.mean(jnp.square(v_emb - embed_targets))
-        im_loss, emb_loss = host_callback.id_print((im_loss, emb_loss), what='Image, Embed')
+        #im_loss, emb_loss = host_callback.id_print((im_loss, emb_loss), what='Image, Embed')
         return im_loss + gamma * emb_loss
         
 
@@ -183,7 +183,10 @@ def main():
 
     model = hk.transform(diffusion_model)
 
-    opt = optax.noisy_sgd(5e-5)
+    opt = optax.chain(
+        optax.noisy_sgd(5e-5),
+        optax.clip(1)
+    )
     key = jax.random.PRNGKey(args.seed)
     
     if not args.resume:
