@@ -142,18 +142,16 @@ def make_forward_fn(model, opt, gamma):
         im_loss = jnp.mean(jnp.square(v_im - image_targets)) * 0.280219 
         emb_loss = jnp.mean(jnp.square(v_emb - embed_targets))
         #im_loss, emb_loss = host_callback.id_print((im_loss, emb_loss), what='Image, Embed')
-        return 0.5 * (im_loss + gamma * emb_loss), (im_loss, emb_loss)
+        return 0.5 * (im_loss + gamma * emb_loss), {'image_loss': im_loss, 'embedding_loss': emb_loss}
         
 
     def train_step(params, opt_state, key, inputs, embeddings, extra_args, axis_name='i'):
         loss_grads, aux_data = jax.value_and_grad(compute_loss, has_aux=True)(params, key, inputs, embeddings, extra_args, jnp.array(1))
         loss, grads = jax.lax.pmean(loss_grads, axis_name)
-        im_loss, emb_loss = aux_data
-        im_loss = jax.lax.pmean(im_loss, axis_name)
-        emb_loss = jax.lax.pmean(emb_loss, axis_name)
+        aux_data = jax.lax.pmean(aux_data, axis_name)
         updates, opt_state = opt.update(grads, opt_state)
         params = optax.apply_updates(params, updates)
-        return loss, params, opt_state, im_loss, emb_loss
+        return loss, params, opt_state, aux_data
     
     return train_step
 
@@ -248,7 +246,7 @@ def main():
             embeds = jax.tree_map(lambda x: psplit(x, num_local_devices), batch_embeds)
             key, subkey = jax.random.split(key)
             keys = jnp.stack(jax.random.split(subkey, num_local_devices))
-            loss, params, opt_state, im_loss, emb_loss = pmap_train_step(
+            loss, params, opt_state, aux_data = pmap_train_step(
                 params,
                 opt_state,
                 keys,
@@ -257,12 +255,9 @@ def main():
                 {}
             )
             params_ema = p_ema_update(params, params_ema, get_ema_decay(epoch))
-            wandb.log({
-                'epoch': epoch,
-                'loss': unreplicate(loss),
-                'image_loss': unreplicate(im_loss),
-                'embedding_loss': unreplicate(emb_loss)}
-            )
+            aux_data = unreplicate(aux_data)
+            aux_data.update({'epoch': epoch, 'loss': unreplicate(loss)})
+            wandb.log(aux_data)
             # print(epoch, i, time.time(), unreplicate(loss), sep=',', file=log_file, flush=True)
             if i % 50 == 0:
                 tqdm.write(f'Epoch {epoch}, iteration {i}, loss {unreplicate(loss):g}')
