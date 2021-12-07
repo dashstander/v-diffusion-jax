@@ -142,7 +142,7 @@ def make_forward_fn(model, opt, gamma):
         im_loss = jnp.mean(jnp.square(v_im - image_targets)) * 0.280219 
         emb_loss = jnp.mean(jnp.square(v_emb - embed_targets))
         #im_loss, emb_loss = host_callback.id_print((im_loss, emb_loss), what='Image, Embed')
-        return 0.5 * (im_loss + gamma * emb_loss), {'image_loss': im_loss, 'embedding_loss': emb_loss}
+        return 0.5 * (im_loss + gamma * emb_loss), (im_loss, emb_loss)
         
 
     def train_step(params, opt_state, key, inputs, embeddings, extra_args, axis_name='i'):
@@ -254,10 +254,11 @@ def main():
                 embeds,
                 {}
             )
+            print(aux_data)
             params_ema = p_ema_update(params, params_ema, get_ema_decay(epoch))
             aux_data = unreplicate(aux_data)
-            aux_data.update({'epoch': epoch, 'loss': unreplicate(loss)})
-            wandb.log(aux_data)
+            batch_log = {'image_loss': aux_data[0], 'embedding_loss': aux_data[1], 'epoch': epoch, 'loss': unreplicate(loss)}
+            wandb.log(batch_log)
             # print(epoch, i, time.time(), unreplicate(loss), sep=',', file=log_file, flush=True)
             if i % 50 == 0:
                 tqdm.write(f'Epoch {epoch}, iteration {i}, loss {unreplicate(loss):g}')
