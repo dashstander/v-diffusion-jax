@@ -57,7 +57,7 @@ def get_dataloader(image_size, batch_size, num_processes, local_rank, seed, trai
         transforms.ToTensor(),
         transforms.Normalize([0.5], [0.5]),
     ])
-    train_set = BucketDataset(bucket, train_set_dir, transform=tf)
+    train_set = BucketDataset(bucket, train_set_dir, transform_fn=tf)
     train_sampler = data.DistributedSampler(
         train_set,
         num_processes,
