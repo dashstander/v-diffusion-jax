@@ -53,6 +53,7 @@ p.add_argument('--train-set', type=str, required=True,
 p.add_argument('--epochs', type=int, default=10)
 p.add_argument('--lr', type=float, default=0.00005)
 p.add_argument('--grad-clip', type=float, default=1.0)
+p.add_argument('--run-name', type=str, default='CLIP-Diffusion')
 
 
 def ema_decay_schedule(decay, epoch):
@@ -163,7 +164,8 @@ def main():
     wandb.init(
         project="clip-diffusion",
         entity="dstander",
-        config=args
+        config=args,
+        name=args.run_name
     )
 
     num_devices = jax.device_count()
