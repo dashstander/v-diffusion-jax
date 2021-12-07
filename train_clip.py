@@ -215,8 +215,8 @@ def main():
         pmap_train_step = jax.pmap(train_step, axis_name='i')
         for i, batch in enumerate(tqdm(train_dl)):
             batch_embeds = clip_embed(jnp.array(batch))
-            images, _ = jax.tree_map(lambda x: psplit(jnp.array(x), num_local_devices), batch)
-            embeds, _ = jax.tree_map(lambda x: psplit(x, num_local_devices), batch_embeds)
+            images = jax.tree_map(lambda x: psplit(jnp.array(x), num_local_devices), batch)
+            embeds = jax.tree_map(lambda x: psplit(x, num_local_devices), batch_embeds)
             key, subkey = jax.random.split(key)
             keys = jnp.stack(jax.random.split(subkey, num_local_devices))
             loss, params, opt_state = pmap_train_step(params, opt_state, keys, images, embeds, {})
