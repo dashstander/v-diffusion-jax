@@ -149,7 +149,7 @@ def make_forward_fn(model, opt, gamma):
         loss_grads = jax.value_and_grad(compute_loss, has_aux=True)(params, key, inputs, embeddings, extra_args, jnp.array(1))
         loss_aux, grads = jax.lax.pmean(loss_grads, axis_name)
         loss, aux_data = loss_aux
-        updates, opt_state = opt.update(grads, opt_state)
+        updates, opt_state = opt.update(grads, opt_state, params)
         params = optax.apply_updates(params, updates)
         return loss, params, opt_state, aux_data
     
