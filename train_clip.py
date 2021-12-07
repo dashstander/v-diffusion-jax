@@ -120,8 +120,7 @@ def make_forward_fn(model, opt, gamma):
         v_im, v_emb = model.apply(params, key, noised_images, log_snrs, noised_embeds, extra_args, is_training)
         im_loss = jnp.mean(jnp.square(v_im - image_targets)) * 0.280219 
         emb_loss = jnp.mean(jnp.square(v_emb - embed_targets))
-        print_str = f'Image: {np.array2string(im_loss)}\nEmbedding: {np.array2string(emb_loss)}'
-        host_callback.id_print(print_str)
+        host_callback.id_print(jax.process_index(), image=im_loss, embed=emb_loss)
         return im_loss + gamma * emb_loss
 
     def train_step(params, opt_state, key, inputs, embeddings, extra_args, axis_name='i'):
