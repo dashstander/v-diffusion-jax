@@ -16,14 +16,14 @@ from torchvision import transforms
 from tqdm import tqdm, trange
 import warnings
 
-from diffusion.cloud_storage import BucketDataset, CoCo
+from diffusion.cloud_storage import BucketDataset
 from diffusion.utils import (
     ema_update,
     get_ddpm_schedule,
+    get_sampling_schedule,
     psplit, punsplit,
     log_snr_to_alpha_sigma,
     ToMode,
-    t_to_alpha_sigma,
     unreplicate,
     to_pil_image,
     worker_init_fn
@@ -82,7 +82,7 @@ def get_dataloader(image_size, batch_size, num_processes, local_rank, seed, trai
         transforms.ToTensor(),
         transforms.Normalize([0.5], [0.5]),
     ])
-    train_set = CoCo(train_set_dir, transform_fn=tf)
+    train_set = BucketDataset(bucket, train_set_dir, transform_fn=tf)
     train_sampler = data.DistributedSampler(
         train_set,
         num_processes,
@@ -101,6 +101,19 @@ def get_dataloader(image_size, batch_size, num_processes, local_rank, seed, trai
     )
     return train_dl, train_sampler
 
+def save(params, params_ema, opt_state, epoch, key):
+    if jax.process_index() != 0:
+        return
+    obj = {
+        'params': unreplicate(params),
+        'params_ema': unreplicate(params_ema),
+        'opt_state': unreplicate(opt_state),
+        'epoch': epoch,
+        'key': key
+    }
+    with open('model.pkl', 'wb') as f:
+        pickle.dump(obj, f)
+
 
 def make_normalize(mean, std):
     mean = jnp.array(mean).reshape([3, 1, 1])
@@ -111,22 +124,16 @@ def make_normalize(mean, std):
     return inner
 
 
-def make_clip_embed_fn(image_fn, text_fn, params, normalize):
+def make_clip_embed_fn(image_fn, params, normalize):
     clip_size = 224
-    # clip_patch_size = 16
+    clip_patch_size = 16
     # extent = clip_patch_size // 2
-    def f(key, images, texts):
-        clip_in = jax.image.resize(images, (*images.shape[:2], clip_size, clip_size), 'cubic')
+    def f(batch):
+        clip_in = jax.image.resize(batch, (*batch.shape[:2], clip_size, clip_size), 'cubic')
         #print(clip_in.shape)
         #clip_in = jnp.pad(clip_in, [(0, 0), (0, 0), (extent, extent), (extent, extent)], 'edge')
         #print(clip_in.shape)
-
-        output = jax.lax.cond(
-            jax.random.uniform(key, 1) > 0.5,
-            lambda: image_fn(params, normalize((clip_in + 1) / 2)),
-            lambda: text_fn(params, clip_jax.tokenize([texts]))
-        )
-        return output
+        return image_fn(params, normalize((clip_in + 1) / 2))
     return f
 
 
@@ -135,7 +142,8 @@ def make_forward_fn(model, opt, gamma):
     def compute_loss(params, key, images, embeds, extra_args, is_training):
         key, subkey = jax.random.split(key)
         t = jax.random.uniform(subkey, images.shape[:1])
-        alphas, sigmas = t_to_alpha_sigma(t)
+        log_snrs = get_ddpm_schedule(get_ddpm_schedule(t))
+        alphas, sigmas = log_snr_to_alpha_sigma(log_snrs)
         key, subkey = jax.random.split(key)
         image_noise = jax.random.normal(subkey, images.shape)
         embed_noise = jax.random.normal(subkey, embeds.shape)
@@ -143,8 +151,8 @@ def make_forward_fn(model, opt, gamma):
         noised_embeds = embeds * alphas[:, None] + embed_noise * sigmas[:, None]
         image_targets = image_noise * alphas[:, None, None, None] - images * sigmas[:, None, None, None]
         embed_targets = embed_noise * alphas[:, None] - embeds * sigmas[:, None]
-        v_im, v_emb = model.apply(params, key, noised_images, t, noised_embeds, extra_args, is_training)
-        im_loss = jnp.mean(jnp.square(v_im - image_targets))
+        v_im, v_emb = model.apply(params, key, noised_images, log_snrs, noised_embeds, extra_args, is_training)
+        im_loss = jnp.mean(jnp.square(v_im - image_targets)) * 0.280219 
         emb_loss = jnp.mean(jnp.square(v_emb - embed_targets))
         #im_loss, emb_loss = host_callback.id_print((im_loss, emb_loss), what='Image, Embed')
         return 0.5 * (im_loss + gamma * emb_loss), (im_loss, emb_loss)
@@ -160,6 +168,67 @@ def make_forward_fn(model, opt, gamma):
     
     return train_step
 
+
+def make_sample_fn(model, num_local_devices):
+    def sample_step(params, key, x_t, y_t, log_snr, log_snr_next, eta, extra_args):
+        keys = jax.random.split(key, num=3)
+        v_im, v_lat = model.apply(
+            params,
+            keys[0],
+            x_t,
+            repeat(log_snr, '-> n', n=x_t.shape[0]),
+            extra_args,
+            jnp.array(0)
+        )
+        alpha, sigma = log_snr_to_alpha_sigma(log_snr)
+        alpha_next, sigma_next = log_snr_to_alpha_sigma(log_snr_next)
+        pred_im = x_t * alpha - v_im * sigma
+        eps_im = x_t * sigma + v_im * alpha
+        pred_lat = y_t * alpha - v_lat * sigma
+        eps_lat = y_t * sigma - v_lat * alpha
+        ddim_sigma = eta * jnp.sqrt(sigma_next**2 / sigma**2) * jnp.sqrt(1 - alpha**2 / alpha_next**2)
+        adjusted_sigma = jnp.sqrt(sigma_next**2 - ddim_sigma**2)
+        x_t = pred_im * alpha_next + eps_im * adjusted_sigma + jax.random.normal(keys[1], x_t.shape) * ddim_sigma
+        y_t = pred_lat * alpha_next + eps_lat * adjusted_sigma + jax.random.normal(keys[2], y_t.shape) * ddim_sigma
+        return x_t, y_t, pred_im
+
+    def sample(params, key, x_t, steps, eta, extra_args):
+        log_snrs = get_sampling_schedule(steps)
+        pmap_sample_step = jax.pmap(sample_step, in_axes=(0, 0, 0, 0, None, None, None, 0))
+        for i in trange(steps-1):
+            key, subkey = jax.random.split(key)
+            keys = jnp.stack(jax.random.split(subkey, num_local_devices))
+            x_t, y_t, pred = pmap_sample_step(
+                params,
+                keys,
+                x_t,
+                y_t,
+                log_snrs[i],
+                log_snrs[i + 1],
+                eta,
+                extra_args
+            )
+        return pred
+
+    return sample
+
+def demo(sample_fn, key, params_ema, epoch, shape):
+    if jax.process_index() != 0:
+        return
+    tqdm.write('Sampling...')
+    outs = []
+    for _ in trange(1):
+        tqdm.write('Sampling unconditional...')
+        key, subkey = jax.random.split(key)
+        noise = jax.random.normal(subkey, [8, 8, *shape])
+        key, subkey = jax.random.split(key)
+        out = punsplit(sample_fn(params_ema, subkey, noise, 1000, 1, {}))
+        outs.append(out)
+    out = jnp.concatenate(outs, axis=0)
+    grid = rearrange(out, '(s1 s2) c h w -> c (s1 h) (s2 w)', s1=8)
+    image = to_pil_image(grid)
+    image.save(f'demo_{epoch:06}.png')
+    wandb.log({'demo': image})
 
 
 
@@ -193,19 +262,13 @@ def main():
         mean=[0.48145466, 0.4578275, 0.40821073],
         std=[0.26862954, 0.26130258, 0.27577711]
     )
-
     image_fn, text_fn, clip_params, _ = clip_jax.load('ViT-B/16')
-
-
-    clip_embed = make_clip_embed_fn(image_fn, text_fn, clip_params, normalize)
-
+    clip_embed = make_clip_embed_fn(image_fn, clip_params, normalize)
     p_ema_update = jax.pmap(ema_update, in_axes=(0, 0, None))
-
-
     model = hk.transform(diffusion_model)
 
     opt = optax.chain(
-        optax.adam(args.lr),
+        optax.fromage(args.lr),
         optax.clip(args.grad_clip)
     )
     key = jax.random.PRNGKey(args.seed)
@@ -221,7 +284,6 @@ def main():
             {},
             jnp.array(0.0)
         )
-        
         params = jax.tree_map(lambda x: x / 2, params)
         params_ema = params
         opt_state = opt.init(params)
@@ -231,7 +293,6 @@ def main():
         epoch, params, params_ema, opt_state, key, log_file = resume_training(args.resume)
 
     get_ema_decay = Partial(ema_decay_schedule, args.ema_decay)
-
         
     print('Model parameters:', hk.data_structures.tree_size(params))
 
@@ -242,13 +303,14 @@ def main():
     key = jax.random.split(key, num_processes)[local_rank]
 
     train_step = make_forward_fn(model, opt, args.gamma)
-
+    sample = jax.jit(make_sample_fn(model, num_local_devices))
 
     def train_one_epoch(params, params_ema, opt_state, key):
         pmap_train_step = jax.pmap(train_step, axis_name='i')
-        for i, batch in enumerate(tqdm(train_dl)):
-            key, subkey = jax.random.split(key)
-            batch_embeds = clip_embed(subkey, *batch)
+        for i, batch in enumerate(tqdm(
+            
+        )):
+            batch_embeds = clip_embed(jnp.array(batch))
             images = jax.tree_map(lambda x: psplit(jnp.array(x), num_local_devices), batch)
             embeds = jax.tree_map(lambda x: psplit(x, num_local_devices), batch_embeds)
             key, subkey = jax.random.split(key)
@@ -261,104 +323,18 @@ def main():
                 embeds,
                 {}
             )
-            #print(aux_data)
             params_ema = p_ema_update(params, params_ema, get_ema_decay(epoch))
             aux_data = unreplicate(aux_data)
             batch_log = {'image_loss': aux_data[0], 'embedding_loss': aux_data[1], 'epoch': epoch, 'loss': unreplicate(loss)}
             wandb.log(batch_log)
-            # print(epoch, i, time.time(), unreplicate(loss), sep=',', file=log_file, flush=True)
             if i % 50 == 0:
                 tqdm.write(f'Epoch {epoch}, iteration {i}, loss {unreplicate(loss):g}')
         return params, params_ema, opt_state
 
-    def sample_step(params, key, x_t, y_t, log_snr, log_snr_next, eta, extra_args):
-        dummy_key = jax.random.PRNGKey(0)
-        v_im, v_lat = model.apply(
-            params,
-            dummy_key,
-            x_t,
-            repeat(log_snr, '-> n', n=x_t.shape[0]),
-            y_t,
-            extra_args,
-            jnp.array(0)
-        )
-        key, subkey = jax.random.split(key)
-        alpha, sigma = log_snr_to_alpha_sigma(log_snr)
-        x_pred = x_t * alpha - v_im * sigma
-        x_eps = x_t * sigma + v_im * alpha
-        y_pred = y_t * alpha - v_lat * sigma
-        y_eps = y_t * sigma - v_lat * alpha
-        alpha_next, sigma_next = log_snr_to_alpha_sigma(log_snr_next)
-        ddim_sigma = eta * jnp.sqrt(sigma_next**2 / sigma**2) * jnp.sqrt(1 - alpha**2 / alpha_next**2)
-        adjusted_sigma = jnp.sqrt(sigma_next**2 - ddim_sigma**2)
-        x_t = x_pred * alpha_next + x_eps * adjusted_sigma
-        y_t = y_pred * alpha_next + y_eps * adjusted_sigma
-        y_t = y_t + jax.random.normal(subkey, y_t.shape) * ddim_sigma
-        x_t = x_t + jax.random.normal(key, x_t.shape) * ddim_sigma
-        return x_t, y_t, x_pred
-
-    def sample(params, key, x_t, steps, eta, extra_args):
-        t = jnp.linspace(1, 0, steps + 1)[:-1]
-        log_snrs = get_ddpm_schedule(t)
-        pmap_sample_step = jax.pmap(sample_step, in_axes=(0, 0, 0, None, None, None, 0))
-        for i in trange(steps):
-            key, subkey = jax.random.split(key)
-            keys = jnp.stack(jax.random.split(subkey, num_local_devices))
-            if i < steps - 1:
-                x_t, y_t, _ = pmap_sample_step(
-                    params,
-                    keys,
-                    x_t,
-                    y_t,
-                    log_snrs[i],
-                    log_snrs[i + 1],
-                    eta,
-                    extra_args
-                )
-            else:
-                _, _, pred = pmap_sample_step(
-                    params,
-                    keys,
-                    x_t,
-                    y_t,
-                    log_snrs[i],
-                    log_snrs[i],
-                    eta,
-                    extra_args
-                )
-        return pred
-
-    def save():
-        if local_rank != 0:
-            return
-        obj = {
-            'params': unreplicate(params),
-            'params_ema': unreplicate(params_ema),
-            'opt_state': unreplicate(opt_state),
-            'epoch': epoch,
-            'key': key
-        }
-        with open('model.pkl', 'wb') as f:
-            pickle.dump(obj, f)
-
-    def demo(key):
-        if local_rank != 0:
-            return
-        tqdm.write('Sampling...')
-        outs = []
-        for _ in trange(1):
-            key, subkey = jax.random.split(key)
-            noise = jax.random.normal(subkey, [8, 8, *shape])
-            key, subkey = jax.random.split(key)
-            out = punsplit(sample(params_ema, subkey, noise, 1000, 1, {}))
-            outs.append(out)
-        out = jnp.concatenate(outs, axis=0)
-        grid = rearrange(out, '(s1 s2) c h w -> c (s1 h) (s2 w)', s1=8)
-        to_pil_image(grid).save(f'demo_{epoch:06}.png')
-
     try:
         key, subkey = jax.random.split(key)
-        demo(subkey)
+        if epoch > 0:
+            demo(sample, subkey, params_ema, epoch)
         while epoch < args.epochs:
             tqdm.write(f'Epoch {epoch}')
             key, subkey = jax.random.split(key)
@@ -368,9 +344,9 @@ def main():
             tqdm.write('')
             if epoch % 5 == 0:
                 key, subkey = jax.random.split(key)
-                demo(subkey)
+                demo(sample, subkey, params_ema, epoch)
             if epoch % 5 == 0:
-                save()
+                save(params, params_ema, opt_state, epoch, subkey)
     except KeyboardInterrupt:
         pass
 
