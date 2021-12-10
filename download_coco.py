@@ -22,12 +22,17 @@ def check_image(raw_content):
 
 
 def download_image(url, split, index):
+    fp = f'/home/dashiell/coco-3m/{split}/{index}.jpg'
+    if os.path.exists(fp):
+        return split, index, True
     response = requests.get(url)
     saved_successfully = False
     if response.ok:
         image, is_image = check_image(response.content)
+        if index % 1000 == 0:
+            print(f'Saving image {index} of the {split} data')
         if is_image:
-            with open(f'/media/dashiell/Elements/coco-3m/{split}/{index}.jpg', mode='wb') as file:
+            with open(fp, mode='wb') as file:
                 image.save(file)
             saved_successfully = True
     return split, index, saved_successfully
@@ -35,8 +40,6 @@ def download_image(url, split, index):
 
 def table_iter(table, split):
     for i, url in enumerate(table['url']):
-        if i % 1000 == 0:
-            print(f'Downloading image {i} of the {split} data')
         yield url.as_py(), split, i
 
 
@@ -57,8 +60,8 @@ def download_everything(train_table, val_table):
     
     train_table.append_column('downloaded', has_downloaded['train'])
     val_table.append_column('downloaded', has_downloaded['val'])
-    pa.parquet.write_table(train_table, '/media/dashiell/Elements/coco-3m/train.parquet')
-    pa.parquet.write_table(val_table, '/media/dashiell/Elements/coco-3m/validation.parquet')
+    pa.parquet.write_table(train_table, '/home/dashiell/coco-3m/train.parquet')
+    pa.parquet.write_table(val_table, '/home/dashiell/coco-3m/validation.parquet')
     print('All done')
 
 
