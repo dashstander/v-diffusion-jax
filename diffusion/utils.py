@@ -79,6 +79,13 @@ def get_ddpm_schedule(ddpm_t):
     alpha, sigma = log_snr_to_alpha_sigma(log_snr)
     return alpha_sigma_to_t(alpha, sigma)
 
+def get_sampling_schedule(steps):
+    t = jnp.linspace(1, 0, steps + 1)
+    last_val = jnp.mean(t[-2:])
+    t.at[-1].set(last_val)
+    log_snrs = get_ddpm_schedule(t)
+    return log_snrs
+
 
 class ToMode:
     def __init__(self, mode):
