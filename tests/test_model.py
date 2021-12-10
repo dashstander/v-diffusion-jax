@@ -34,12 +34,14 @@ def test_model():
     fake_time = jax.random.normal(keys[2], [3])
 
     def f(rng, image, time, embed):
-        v_im, v_emb = model.apply(params, rng, image, time, embed, {}, jnp.array(0))
-        return jnp.mean(v_im) + jnp.mean(v_emb)
+        v_emb = model.apply(params, rng, image, time, embed, {}, jnp.array(0))
+        return v_emb
         
     #output = model.apply(params, keys[3], fake_image, fake_time, fake_embed, {}, jnp.array(0))
     f(keys[3], fake_image, fake_time, fake_embed)
     #print(output)
     print('Model parameters:', hk.data_structures.tree_size(params))
+
+
 
 test_model()

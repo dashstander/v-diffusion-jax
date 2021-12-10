@@ -184,6 +184,43 @@ class CrossAttention(hk.Module):
         xy = jax.nn.relu(jnp.concatenate([x_atts, y_atts], axis=1))
         return self.fuse(xy)
 
+    
+
+class ResLayer(hk.Module):
+    
+    def __init__(self, input_size, mid_size, dr_rate, name=None):
+        super().__init__(name)
+        self.l1 = hk.Linear(mid_size)
+        self.l2 = hk.Linear(input_size)
+        self.dr_rate = dr_rate
+    
+    def __call__(self, x, is_training):
+        dr = self.dr_rate if is_training > 0.0 else 0.0
+        x1 = self.l1(x)
+        x1 = jax.nn.relu(x1)
+        x1 = hk.dropout(hk.next_rng_key(), dr, x1)
+        x1 = self.l2(x1)
+        return jax.nn.relu(x1) + x
+        
+
+
+
+class ResMLP(hk.Module):
+    def __init__(self, num_layers, input_size, mid_size, dr_rate, name=None):
+        super().__init__(name)
+        self.num_layers = num_layers
+        self.input_size = input_size
+        self.mid_size = mid_size
+        self.dr_rate = dr_rate
+
+    def __call__(self, x, is_training):
+        dr = self.dr_rate if is_training > 0.0 else 0.0
+        x_init = x
+        for _ in range(self.num_layers):
+            x = ResLayer(self.input_size, self.mid_size, dr)(x, is_training)
+        return x + x_init
+
+
 
 def reshape_embed_to_image(x, image_shape):
     assert x.ndim == 2
@@ -194,68 +231,50 @@ def reshape_embed_to_image(x, image_shape):
     return x[:, None].repeat(repeats, axis=1).reshape(target_shape)        
 
 
-def diffusion_model(x, t, y, extra_args, is_training):
+def diffusion_image_model(x, t, y, extra_args, is_training):
     c = 256
     log_snr = utils.alpha_sigma_to_log_snr(*utils.t_to_alpha_sigma(t))
-    timestep_embed = FourierFeatures(16, 0.2)(log_snr[:, None])
+    timestep_embed = FourierFeatures(64, 1)(log_snr[:, None])
 
-    y = jnp.concatenate([timestep_embed, y], axis=1)
-    y = hk.Linear(256)(y)
-    y = jax.nn.relu(y)
-    y = hk.remat(EmbedTransformer(width=256, heads=1, layers=1, name="EmbedTransformer01"))(y)
+    # y_1 = jnp.concatenate([timestep_embed, y], axis=1)
+    # y_1 = hk.Linear(256)(y_1)
+    # y_1 = jax.nn.relu(y_1)
 
-    te_planes = jnp.tile(
-        timestep_embed[..., None, None], [1, 1, x.shape[2], x.shape[3]]
-    )
-    x = jnp.concatenate([x, te_planes], axis=1)  
-    x = ResConvBlock(2, c // 2, c // 2, name="ResBlock1")(x, is_training) # Nx128x256x256
+    y_1 = ResMLP(2, 512, 512, 0.1)(y, is_training)
+    y_1 = hk.Linear(64)(y_1)
+    te_planes = jnp.tile(timestep_embed[..., None, None], [1, 1, *x.shape[2:]])
+    y_planes = jnp.tile(y_1[..., None, None], [1, 1, *x.shape[2:]])
+    x = jnp.concatenate([x, te_planes, y_planes], axis=1)  
+    x = ResConvBlock(4, c // 2, c // 2, name="ResBlock1")(x, is_training) # Nx128x256x256
     #print(f'x: {x.shape}')
     ########################################################
-    x_2 = hk.AvgPool(2, 2, "SAME", 1)(x)  # Nx128x128x128
+    x_2 = hk.AvgPool(4, 2, "SAME", 1)(x)  # Nx128x128x128
     #print(f'x_2: {x_2.shape}')
-    x_embed_2 = hk.remat(clip.VisualTransformer(128, 16, 128, 2, 2, 256, "ViT01"))(x_2)
-    xy_1 = hk.remat(CrossAttention(2, 256, 512, "CrossAtt01"))(y, x_embed_2)
-    x_2 = ResConvBlock(1, c, c, name="ResBlock2")(x_2, is_training)
+    x_2 = ResConvBlock(2, c, c, name="ResBlock2")(x_2, is_training)
     ########################################################
     x_3 = hk.AvgPool(2, 2, "SAME", 1)(x_2)  # Nx256x64x64
     #print(f'x_3: {x_3.shape}')
-    x_3 = ResConvBlock(1, c * 2, (c * 2) - 1, name="ResBlock3")(x_3, is_training)
+    x_3 = ResConvBlock(1, c * 2, c * 2, name="ResBlock3")(x_3, is_training)
     ########################################################
-    x_4 = hk.AvgPool(2, 2, "SAME", 1)(x_3)  
-    x_4 = jnp.concatenate([
-        x_4,
-        reshape_embed_to_image(xy_1, x_4.shape)],
-        axis=1
-    ) # Nx512x32x32
-    #print(f'x_4: {x_4.shape}')
-    y_2 = jax.nn.relu(xy_1)
-    y_2 = hk.Linear(64)(y_2)
-    y_2 = hk.remat(EmbedTransformer(64, 1, 2, "EmbedTransformer2"))(y_2)
+    x_4 = hk.AvgPool(2, 2, "SAME", 1)(x_3)  # Nx512x32x32
     x_4 = ResConvBlock(2, c * 2, c * 2, name="ResBlock4")(x_4, is_training)
+    #print(f'x_4: {x_4.shape}')
     ########################################################
     x_5 = hk.AvgPool(2, 2, "SAME", 1)(x_4)  # Nx256x16x16
     #print(f'x_5: {x_5.shape}')
-    x_5 = hk.remat(ResConvBlockAtt(2, c * 4 // 128, c * 4, c * 4, name="ResBlock5"))(
-        x_5, is_training
-    )
+    x_5 = hk.remat(ResConvBlockAtt(4, c * 4 // 128, c * 2, c * 4, name="ResBlock5"))(x_5, is_training)
     ########################################################
     x_6 = hk.AvgPool(2, 2, "SAME", 1)(x_5)  # 8x8
     #print(f'x_6: {x_6.shape}')
-    x_6 = hk.remat(ResConvBlockAtt(2, c * 4 // 128, c * 4, c * 4, name="ResBlock6"))(
-        x_6, is_training
-    )
+    x_6 = hk.remat(ResConvBlockAtt(4, c * 4 // 128, c * 4, c * 4, name="ResBlock6"))(x_6, is_training)
     #########################################################
     x_7 = hk.AvgPool(2, 2, "SAME", 1)(x_6)  # Nx1024x4x4
     #print(f'x_7: {x_7.shape}')
-    x_embed_7 = hk.Linear(64)(jnp.mean(x_7, axis=(2 , 3))) # Nx1024x4x4 -> Nx1024 --> Nx128
-    xy_2 = hk.remat(CrossAttention(2, 64, 64, "CrossAtt7"))(x_embed_7, y_2)
-    y_3 = hk.remat(EmbedTransformer(64, 1, 2, "EmbedTransformer3"))(xy_2)
-    x_7 = ResConvBlock(4, c * 8, c * 8, (c * 4) - 1, name="ResBlock7")(x_7, is_training)
+    x_7 = ResConvBlock(4, c * 4, c * 4, c * 4, name="ResBlock7")(x_7, is_training)
     x_7 = jax.image.resize(x_7, [*x_7.shape[:2], *x_6.shape[2:]], "nearest")
-    x_7 = jnp.concatenate([x_7, reshape_embed_to_image(y_3, x_7.shape)], axis=1)
     ##########################################################
     x_6 = jnp.concatenate([x_6, x_7], axis=1)
-    x_6 = hk.remat(ResConvBlockAtt(2, c * 4 // 128, c * 4, c * 4, name="SecondResBlock6"))(x_6, is_training)
+    x_6 = hk.remat(ResConvBlockAtt(4, c * 4 // 128, c * 4, c * 4, name="SecondResBlock6"))(x_6, is_training)
     x_6 = jax.image.resize(x_6, [*x_6.shape[:2], *x_5.shape[2:]], "nearest")
     ############################################################
     x_5 = jnp.concatenate([x_5, x_6], axis=1)
@@ -275,19 +294,53 @@ def diffusion_model(x, t, y, extra_args, is_training):
     x_2 = jnp.concatenate([x_2, x_3], axis=1)
     x_2 = ResConvBlock(1, c, c, c // 2, name='SecondResBlock2')(x_2, is_training)
     x_2 = jax.image.resize(x_2, [*x_2.shape[:2], *x.shape[2:]], "nearest")
-    y_4 = hk.remat(EmbedTransformer(64, 1, 2, "EmbedTransforme4"))(y_3)
-    y_4 = jax.nn.relu(y_4)
-    y_4 = hk.Linear(512)(y_4)
     ##############################################################
     x = jnp.concatenate([x, x_2], axis=1)
     x = hk.remat(ResConvBlock(1, c // 2, c // 2, 3, name='SecondResBlock1'))(x, is_training)
-    y = EmbedTransformer(512, 1, 2, "EmbedTransformerFinal")(y_4)
     return x, y
 
 
-class CLIPWikiArt256:
-    init, apply = hk.transform(diffusion_model)
-    shape = (3, 256, 256)
-    min_t = float(utils.get_ddpm_schedule(jnp.array(0.0)))
-    max_t = float(utils.get_ddpm_schedule(jnp.array(1.0)))
+def diffusion_latent_model(x, t, y, extra_args, is_training):
+    c = 256
+    log_snr = utils.alpha_sigma_to_log_snr(*utils.t_to_alpha_sigma(t))
+    timestep_embed = FourierFeatures(64, 1)(log_snr[:, None])
+
+    y_1 = jnp.concatenate([timestep_embed, y], axis=1)
+    y_1 = hk.Linear(512)(y_1)
+    y_1 = jax.nn.relu(y_1)
+
+    te_planes = jnp.tile(
+        timestep_embed[..., None, None], [1, 1, x.shape[2], x.shape[3]]
+    )
+    x = jnp.concatenate([x, te_planes], axis=1)  
+    x = ResConvBlock(4, c // 2, c // 2, name="ResBlock1")(x, is_training) # Nx128x256x256
+    #print(f'x: {x.shape}')
+    ########################################################
+    x_2 = hk.AvgPool(4, 2, "SAME", 1)(x)  # Nx128x128x128
+    #print(f'x_2: {x_2.shape}')
+    x_embed_2 = hk.remat(clip.VisualTransformer(128, 16, 128, 2, 2, 512, "ViT01"))(x_2)
+    ##############################################################
+    y2 = hk.Linear(512)(jnp.concatenate([y_1, x_embed_2], axis=1))
+    y_2 = ResMLP(4, 512, 1024, 0.1)(y2, is_training)
+    ############################################################
+    y_3 = ResMLP(4, 1024, 512, 0.1)(jnp.concatenate([y_2, y], axis=1), is_training)
+    y_3 = hk.Linear(512)(y_3)
+    ##############################################################
+    y_4 = ResMLP(4, 512, 1024, 0.1)(y_3, is_training)
+    y_4 = hk.Linear(512)(jnp.concatenate([y_4, y_2], axis=1))
+    y = ResMLP(2, 512, 512, 0.0)(y_4, is_training)
+    return y
+
+
+def diffusion_model(x, t, y, extra_args, is_training):
+    x_pred = diffusion_image_model(x, t, y, extra_args, is_training)
+    y_pred = diffusion_latent_model(x, t, y, extra_args, is_training)
+    return x_pred, y_pred
+
+
+#class CLIPWikiArt256:
+#    init, apply = hk.transform(diffusion_model)
+#    shape = (3, 256, 256)
+#    min_t = float(utils.get_ddpm_schedule(jnp.array(0.0)))
+#    max_t = float(utils.get_ddpm_schedule(jnp.array(1.0)))
 

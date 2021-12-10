@@ -262,7 +262,7 @@ def main():
         mean=[0.48145466, 0.4578275, 0.40821073],
         std=[0.26862954, 0.26130258, 0.27577711]
     )
-    image_fn, _, clip_params, _ = clip_jax.load('ViT-B/16')
+    image_fn, text_fn, clip_params, _ = clip_jax.load('ViT-B/16')
     clip_embed = make_clip_embed_fn(image_fn, clip_params, normalize)
     p_ema_update = jax.pmap(ema_update, in_axes=(0, 0, None))
     model = hk.transform(diffusion_model)
@@ -293,7 +293,6 @@ def main():
         epoch, params, params_ema, opt_state, key, log_file = resume_training(args.resume)
 
     get_ema_decay = Partial(ema_decay_schedule, args.ema_decay)
-
         
     print('Model parameters:', hk.data_structures.tree_size(params))
 
@@ -308,7 +307,9 @@ def main():
 
     def train_one_epoch(params, params_ema, opt_state, key):
         pmap_train_step = jax.pmap(train_step, axis_name='i')
-        for i, batch in enumerate(tqdm(train_dl)):
+        for i, batch in enumerate(tqdm(
+            
+        )):
             batch_embeds = clip_embed(jnp.array(batch))
             images = jax.tree_map(lambda x: psplit(jnp.array(x), num_local_devices), batch)
             embeds = jax.tree_map(lambda x: psplit(x, num_local_devices), batch_embeds)
