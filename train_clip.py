@@ -124,16 +124,21 @@ def make_normalize(mean, std):
     return inner
 
 
-def make_clip_embed_fn(image_fn, params, normalize):
+def make_clip_embed_fn(image_fn, text_fn, params, normalize):
     clip_size = 224
     clip_patch_size = 16
     # extent = clip_patch_size // 2
-    def f(batch):
-        clip_in = jax.image.resize(batch, (*batch.shape[:2], clip_size, clip_size), 'cubic')
+    def f(batch, key):
+        images = batch['image_tensor']
+        texts = batch['text']
+        clip_in = jax.image.resize(images, (*images.shape[:2], clip_size, clip_size), 'cubic')
+        image_embeds = image_fn(params, normalize((clip_in + 1) / 2))
+        text_embeds = text_fn(params, clip_jax.tokenize(texts))
+        dice_roll = jax.random.uniform(key, [text_embeds.shape[0],])
         #print(clip_in.shape)
         #clip_in = jnp.pad(clip_in, [(0, 0), (0, 0), (extent, extent), (extent, extent)], 'edge')
         #print(clip_in.shape)
-        return image_fn(params, normalize((clip_in + 1) / 2))
+        return jax.lax.select(dice_roll > 0.5, image_embeds, text_embeds)
     return f
 
 
@@ -263,12 +268,12 @@ def main():
         std=[0.26862954, 0.26130258, 0.27577711]
     )
     image_fn, text_fn, clip_params, _ = clip_jax.load('ViT-B/16')
-    clip_embed = make_clip_embed_fn(image_fn, clip_params, normalize)
+    clip_embed = make_clip_embed_fn(image_fn, text_fn, clip_params, normalize)
     p_ema_update = jax.pmap(ema_update, in_axes=(0, 0, None))
     model = hk.transform(diffusion_model)
 
     opt = optax.chain(
-        optax.fromage(args.lr),
+        optax.adam(args.lr),
         optax.clip(args.grad_clip)
     )
     key = jax.random.PRNGKey(args.seed)
