@@ -134,7 +134,10 @@ def make_clip_embed_fn(image_fn, text_fn, params, normalize):
         clip_in = jax.image.resize(jnp.array(images), (*images.shape[:2], clip_size, clip_size), 'cubic')
         image_embeds = image_fn(params, normalize((clip_in + 1) / 2))
         text_embeds = text_fn(params, clip_jax.tokenize(texts))
-        dice_roll = jax.random.uniform(key, [text_embeds.shape[0],])
+        dice_roll = jnp.repeat(
+            jax.random.uniform(key, [text_embeds.shape[0],]),
+            text_embeds.shape[1]
+        ).reshape(text_embeds.shape)
         #print(clip_in.shape)
         #clip_in = jnp.pad(clip_in, [(0, 0), (0, 0), (extent, extent), (extent, extent)], 'edge')
         #print(clip_in.shape)
