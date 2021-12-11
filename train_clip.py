@@ -318,7 +318,7 @@ def main():
         for i, batch in enumerate(tqdm(train_dl)):
             key, subkey = jax.random.split(key)
             batch_embeds = clip_embed(batch, subkey)
-            images = jax.tree_map(lambda x: psplit(jnp.array(x), num_local_devices), batch)
+            images = jax.tree_map(lambda x: psplit(jnp.array(x), num_local_devices), batch['image_tensor'])
             embeds = jax.tree_map(lambda x: psplit(x, num_local_devices), batch_embeds)
             key, subkey = jax.random.split(key)
             keys = jnp.stack(jax.random.split(subkey, num_local_devices))
