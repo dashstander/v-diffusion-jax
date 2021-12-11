@@ -131,7 +131,7 @@ def make_clip_embed_fn(image_fn, text_fn, params, normalize):
     def f(batch, key):
         images = batch['image_tensor']
         texts = batch['text']
-        clip_in = jax.image.resize(images, (*images.shape[:2], clip_size, clip_size), 'cubic')
+        clip_in = jax.image.resize(jnp.array(images), (*images.shape[:2], clip_size, clip_size), 'cubic')
         image_embeds = image_fn(params, normalize((clip_in + 1) / 2))
         text_embeds = text_fn(params, clip_jax.tokenize(texts))
         dice_roll = jax.random.uniform(key, [text_embeds.shape[0],])
