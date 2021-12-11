@@ -313,7 +313,8 @@ def main():
     def train_one_epoch(params, params_ema, opt_state, key):
         pmap_train_step = jax.pmap(train_step, axis_name='i')
         for i, batch in enumerate(tqdm(train_dl)):
-            batch_embeds = clip_embed(batch)
+            key, subkey = jax.random.split(key)
+            batch_embeds = clip_embed(batch, subkey)
             images = jax.tree_map(lambda x: psplit(jnp.array(x), num_local_devices), batch)
             embeds = jax.tree_map(lambda x: psplit(x, num_local_devices), batch_embeds)
             key, subkey = jax.random.split(key)
