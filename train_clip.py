@@ -24,6 +24,7 @@ from diffusion.utils import (
     psplit, punsplit,
     log_snr_to_alpha_sigma,
     ToMode,
+    t_to_alpha_sigma,
     unreplicate,
     to_pil_image,
     worker_init_fn
@@ -150,8 +151,7 @@ def make_forward_fn(model, opt, gamma):
     def compute_loss(params, key, images, embeds, extra_args, is_training):
         key, subkey = jax.random.split(key)
         t = jax.random.uniform(subkey, images.shape[:1])
-        log_snrs = get_ddpm_schedule(get_ddpm_schedule(t))
-        alphas, sigmas = log_snr_to_alpha_sigma(log_snrs)
+        alphas, sigmas = t_to_alpha_sigma(t)
         key, subkey = jax.random.split(key)
         image_noise = jax.random.normal(subkey, images.shape)
         embed_noise = jax.random.normal(subkey, embeds.shape)
@@ -159,8 +159,8 @@ def make_forward_fn(model, opt, gamma):
         noised_embeds = embeds * alphas[:, None] + embed_noise * sigmas[:, None]
         image_targets = image_noise * alphas[:, None, None, None] - images * sigmas[:, None, None, None]
         embed_targets = embed_noise * alphas[:, None] - embeds * sigmas[:, None]
-        v_im, v_emb = model.apply(params, key, noised_images, log_snrs, noised_embeds, extra_args, is_training)
-        im_loss = jnp.mean(jnp.square(v_im - image_targets)) * 0.280219 
+        v_im, v_emb = model.apply(params, key, noised_images, t, noised_embeds, extra_args, is_training)
+        im_loss = jnp.mean(jnp.square(v_im - image_targets))
         emb_loss = jnp.mean(jnp.square(v_emb - embed_targets))
         #im_loss, emb_loss = host_callback.id_print((im_loss, emb_loss), what='Image, Embed')
         return 0.5 * (im_loss + gamma * emb_loss), (im_loss, emb_loss)
