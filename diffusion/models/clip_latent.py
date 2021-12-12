@@ -42,6 +42,25 @@ class Dropout2d(hk.Module):
         return x * p / (1.0 - rate)
 
 
+def dropout(rng, rate: float, x: jnp.ndarray) -> jnp.ndarray:
+  """Randomly drop units in the input at a given rate.
+
+  See: http://www.cs.toronto.edu/~hinton/absps/dropout.pdf
+
+  Args:
+    rng: A JAX random key.
+    rate: Probability that each element of ``x`` is discarded. Must be a scalar
+    in the range ``[0, 1)``.
+    x: The value to be dropped out.
+
+  Returns:
+    x, but dropped out and scaled by ``1 / (1 - rate)``.
+  """
+  keep_rate = 1.0 - rate
+  keep = jax.random.bernoulli(rng, keep_rate, shape=x.shape)
+  return keep * x / keep_rate
+
+
 class SelfAttention2d(hk.Module):
     def __init__(self, n_head=1, dropout_rate=0.1, name=None):
         super().__init__(name=name)
@@ -186,6 +205,7 @@ class CrossAttention(hk.Module):
         return self.fuse(xy)
 
 
+
 class ResMLP(hk.Module):
     def __init__(self, num_layers, input_size, mid_size, dr_rate, name=None):
         super().__init__(name)
@@ -195,12 +215,13 @@ class ResMLP(hk.Module):
         self.dr_rate = dr_rate
         self.layers = [hk.nets.MLP([mid_size, input_size]) for _ in range(num_layers)]
 
-    def __call__(self, x, is_training):
+    def __call__(self, x, enabled):
         x_init = x
-        for layer in self.layers:
-            x = layer(x, dropout_rate=self.dr_rate * is_training, rng=hk.next_rng_key())
-        return x + x_init
 
+        for layer in self.layers:
+            x = layer(x)
+            x = dropout(hk.next_rng_key(), enabled * self.dr_rate, x)
+        return x + x_init
 
 
 def reshape_embed_to_image(x, image_shape):
