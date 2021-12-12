@@ -297,7 +297,7 @@ class DiffusionImage(hk.Module):
         x_3 = jax.image.resize(x_3, [*x_3.shape[:2], *x_2.shape[2:]], "nearest")
         ##############################################################
         x_2 = jnp.concatenate([x_2, x_3], axis=1)
-        x_2 = ResConvBlock(1, self.c, self.c, self.c // 2, name='SecondResBlock2')(x_2, is_training)
+        x_2 = hk.remat(ResConvBlock(1, self.c, self.c, self.c // 2, name='SecondResBlock2'))(x_2, is_training)
         x_2 = jax.image.resize(x_2, [*x_2.shape[:2], *x.shape[2:]], "nearest")
         ##############################################################
         x = jnp.concatenate([x, x_2], axis=1)
@@ -333,12 +333,12 @@ class DiffusionLatent(hk.Module):
         y2 = hk.Linear(512)(jnp.concatenate([y_1, x_embed_2], axis=1))
         y_2 = ResMLP(4, 512, 1024, 0.1)(y2, is_training)
         ############################################################
-        y_3 = ResMLP(4, 1024, 512, 0.1)(jnp.concatenate([y_2, y], axis=1), is_training)
+        y_3 = hk.remat(ResMLP(4, 1024, 512, 0.1))(jnp.concatenate([y_2, y], axis=1), is_training)
         y_3 = hk.Linear(512)(y_3)
         ##############################################################
-        y_4 = ResMLP(4, 512, 1024, 0.1)(y_3, is_training)
+        y_4 = hk.remat(ResMLP(4, 512, 1024, 0.1))(y_3, is_training)
         y_4 = hk.Linear(512)(jnp.concatenate([y_4, y_2], axis=1))
-        y = ResMLP(2, 512, 512, 0.0)(y_4, is_training)
+        y = hk.remat(ResMLP(2, 512, 512, 0.0))(y_4, is_training)
         return y
 
 
