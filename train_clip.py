@@ -33,8 +33,6 @@ from diffusion.models.clip_latent import diffusion_model
 
 warnings.simplefilter('ignore', PIL.Image.DecompressionBombWarning)
 
-import os
-os.environ['HAIKU_FLATMAPPING'] = '0'
 
 from jax.experimental import host_callback
 import wandb
@@ -277,8 +275,15 @@ def main():
     clip_embed = make_clip_embed_fn(image_fn, text_fn, clip_params, normalize)
     p_ema_update = jax.pmap(ema_update, in_axes=(0, 0, None))
     model = hk.transform(diffusion_model)
+    param_labels = ('diffusion_image', 'diffusion_latent')
     opt = optax.chain(
-        optax.sm3(args.lr),
+        optax.multi_transform(
+            {
+                'diffusion_image': optax.fromage(args.lr),
+                'diffusion_latent': optax.adam(args.lr)
+            },
+            param_labels
+        ),
         optax.clip(args.grad_clip)
     )
     key = jax.random.PRNGKey(args.seed)
