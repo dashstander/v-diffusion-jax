@@ -258,7 +258,7 @@ def main():
 
     size = 256
     shape = (3, size, size)
-    num_grad_acc_steps = args.accum_grad
+    num_grad_acc_steps = args.accum_grads
 
     train_dl, train_sampler = get_dataloader(
         size,
