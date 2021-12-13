@@ -27,6 +27,7 @@ def main():
                    help='the amount of noise to add during sampling (0-1)')
     p.add_argument('--init', type=str,
                    help='the init image')
+    p.add_argument('--out-dir', type=str, default='.')
     p.add_argument('--model', type=str, choices=get_models(), required=True,
                    help='the model to use')
     p.add_argument('-n', type=int, default=1,
@@ -71,7 +72,7 @@ def main():
             cur_batch_size = min(n - i, batch_size)
             outs = run(key, cur_batch_size)
             for j, out in enumerate(outs):
-                utils.to_pil_image(out).save(f'out_{i + j:05}.png')
+                utils.to_pil_image(out).save(f'{args.out_dir}/out_{i + j:05}.png')
 
     try:
         run_all(key, args.n, args.batch_size)

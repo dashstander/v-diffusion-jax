@@ -19,7 +19,6 @@ import warnings
 from diffusion.cloud_storage import ImageDataset
 from diffusion.utils import (
     ema_update,
-    get_ddpm_schedule,
     get_sampling_schedule,
     psplit, punsplit,
     log_snr_to_alpha_sigma,
@@ -55,6 +54,7 @@ p.add_argument('--epochs', type=int, default=10)
 p.add_argument('--lr', type=float, default=0.00005)
 p.add_argument('--grad-clip', type=float, default=1.0)
 p.add_argument('--run-name', type=str, default='CLIP-Diffusion')
+p.add_argument('--accum-grads', type=int, default=1)
 
 
 def ema_decay_schedule(decay, epoch):
@@ -257,6 +257,7 @@ def main():
 
     size = 256
     shape = (3, size, size)
+    num_grad_acc_steps = args.accum_grad
 
     train_dl, train_sampler = get_dataloader(
         size,
@@ -275,10 +276,11 @@ def main():
     p_ema_update = jax.pmap(ema_update, in_axes=(0, 0, None))
     model = hk.transform(diffusion_model)
 
-    opt = optax.chain(
-        optax.adam(args.lr),
-        optax.clip(args.grad_clip)
-    )
+    optim_pieces = [optax.adam(args.lr), optax.clip(args.grad_clip)]
+    if num_grad_acc_steps > 1:
+        optim_pieces.append(optax.apply_every(num_grad_acc_steps))
+
+    opt = optax.chain(* optim_pieces)
     key = jax.random.PRNGKey(args.seed)
     
     if not args.resume:
@@ -315,6 +317,7 @@ def main():
 
     def train_one_epoch(params, params_ema, opt_state, key):
         pmap_train_step = jax.pmap(train_step, axis_name='i')
+        accumulated_losses = {'image': [], 'latent': [], 'total': []}
         for i, batch in enumerate(tqdm(train_dl)):
             key, subkey = jax.random.split(key)
             batch_embeds = clip_embed(batch, subkey)
@@ -333,6 +336,18 @@ def main():
             params_ema = p_ema_update(params, params_ema, get_ema_decay(epoch))
             aux_data = unreplicate(aux_data)
             batch_log = {'image_loss': aux_data[0], 'embedding_loss': aux_data[1], 'epoch': epoch, 'loss': unreplicate(loss)}
+            if num_grad_acc_steps > 1:
+                accumulated_losses['accum_image'].append(batch_log['image_loss'])
+                accumulated_losses['accum_latent'].append(batch_log['latent'])
+                accumulated_losses['accum_total'].append(batch_log['total'])
+                if i % (num_grad_acc_steps - 1) == 0:
+                    batch_log.update(
+                        jax.tree_util.map(
+                            lambda x: jnp.mean(jnp.array(x)),
+                            accumulated_losses
+                        )
+                    )
+                    accumulated_losses = {'image': [], 'latent': [], 'total': []}
             wandb.log(batch_log)
             if i % 50 == 0:
                 tqdm.write(f'Epoch {epoch}, iteration {i}, loss {unreplicate(loss):g}')
