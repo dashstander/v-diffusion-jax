@@ -277,7 +277,7 @@ def main():
     p_ema_update = jax.pmap(ema_update, in_axes=(0, 0, None))
     model = hk.transform(diffusion_model)
 
-    optim_pieces = [optax.adam(args.lr), optax.clip(args.grad_clip)]
+    optim_pieces = [optax.fromage(args.lr), optax.clip(args.grad_clip)]
     if num_grad_acc_steps > 1:
         optim_pieces.append(optax.apply_every(num_grad_acc_steps))
 
