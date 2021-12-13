@@ -33,6 +33,9 @@ from diffusion.models.clip_latent import diffusion_model
 
 warnings.simplefilter('ignore', PIL.Image.DecompressionBombWarning)
 
+import os
+os.environ['HAIKU_FLATMAPPING'] = '0'
+
 from jax.experimental import host_callback
 import wandb
 
