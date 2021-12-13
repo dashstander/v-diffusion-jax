@@ -274,8 +274,10 @@ def main():
     clip_embed = make_clip_embed_fn(image_fn, text_fn, clip_params, normalize)
     p_ema_update = jax.pmap(ema_update, in_axes=(0, 0, None))
     model = hk.transform(diffusion_model)
-    optim_pieces = [optax.sm3(args.lr), optax.clip(args.grad_clip)]
-    opt = optax.chain(* optim_pieces)
+    opt = optax.chain(
+        optax.sm3(args.lr),
+        optax.clip(args.grad_clip)
+    )
     key = jax.random.PRNGKey(args.seed)
     
     if not args.resume:
