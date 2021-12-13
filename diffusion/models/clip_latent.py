@@ -316,8 +316,8 @@ class DiffusionLatent(hk.Module):
         timestep_embed = FourierFeatures(64, 1)(log_snr[:, None])
 
         y_1 = jnp.concatenate([timestep_embed, y], axis=1)
-        y_1 = hk.Linear(512)(y_1)
-        y_1 = jax.nn.relu(y_1)
+        y_1 = hk.Linear(1024)(y_1)
+        y_1 = ResMLP(4, 1024, 1024, 0.1)(y_1, is_training)
 
         te_planes = jnp.tile(
             timestep_embed[..., None, None], [1, 1, x.shape[2], x.shape[3]]
@@ -330,13 +330,13 @@ class DiffusionLatent(hk.Module):
         #print(f'x_2: {x_2.shape}')
         x_embed_2 = hk.remat(clip.VisualTransformer(128, 16, 128, 2, 2, 512, "ViT01"))(x_2)
         ##############################################################
-        y2 = hk.Linear(512)(jnp.concatenate([y_1, x_embed_2], axis=1))
-        y_2 = ResMLP(4, 512, 1024, 0.1)(y2, is_training)
+        y2 = hk.Linear(1024)(jnp.concatenate([y_1, x_embed_2], axis=1))
+        y_2 = ResMLP(4, 1024, 2048, 0.1)(y2, is_training)
         ############################################################
-        y_3 = hk.remat(ResMLP(4, 1024, 512, 0.1))(jnp.concatenate([y_2, y], axis=1), is_training)
-        y_3 = hk.Linear(512)(y_3)
+        y_3 = hk.Linear(2048)(jnp.concatenate([y_2, y], axis=1))
+        y_3 = hk.remat(ResMLP(4, 2048, 2048, 0.1))(y_3, is_training)
         ##############################################################
-        y_4 = hk.remat(ResMLP(4, 512, 1024, 0.1))(y_3, is_training)
+        y_4 = hk.remat(ResMLP(4, 2048, 512, 0.1))(y_3, is_training)
         y_4 = hk.Linear(512)(jnp.concatenate([y_4, y_2], axis=1))
         y = hk.remat(ResMLP(2, 512, 512, 0.0))(y_4, is_training)
         return y

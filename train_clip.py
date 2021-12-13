@@ -16,6 +16,7 @@ from torchvision import transforms
 from tqdm import tqdm, trange
 import warnings
 
+from diffusion.clip_tokenizer import tokenize
 from diffusion.cloud_storage import ImageDataset
 from diffusion.utils import (
     ema_update,
@@ -127,14 +128,14 @@ def make_normalize(mean, std):
 
 def make_clip_embed_fn(image_fn, text_fn, params, normalize):
     clip_size = 224
-    clip_patch_size = 16
+    # clip_patch_size = 16
     # extent = clip_patch_size // 2
     def f(batch, key):
         images = batch['image_tensor']
         texts = batch['text']
         clip_in = jax.image.resize(jnp.array(images), (*images.shape[:2], clip_size, clip_size), 'cubic')
         image_embeds = image_fn(params, normalize((clip_in + 1) / 2))
-        text_embeds = text_fn(params, clip_jax.tokenize(texts))
+        text_embeds = text_fn(params, tokenize(texts))
         dice_roll = jnp.repeat(
             jax.random.uniform(key, [text_embeds.shape[0],]),
             text_embeds.shape[1]

@@ -141,5 +141,5 @@ def test_sample():
     fake_embed = jax.random.normal(keys[1], [3, 512])
     do_sample(params, keys[2], fake_image, fake_embed, 100, 2, {})
 
-# test_model()
-test_sample()
+test_model()
+# test_sample()
