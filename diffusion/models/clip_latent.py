@@ -42,6 +42,25 @@ class Dropout2d(hk.Module):
         return x * p / (1.0 - rate)
 
 
+def dropout(rng, rate: float, x: jnp.ndarray) -> jnp.ndarray:
+  """Randomly drop units in the input at a given rate.
+
+  See: http://www.cs.toronto.edu/~hinton/absps/dropout.pdf
+
+  Args:
+    rng: A JAX random key.
+    rate: Probability that each element of ``x`` is discarded. Must be a scalar
+    in the range ``[0, 1)``.
+    x: The value to be dropped out.
+
+  Returns:
+    x, but dropped out and scaled by ``1 / (1 - rate)``.
+  """
+  keep_rate = 1.0 - rate
+  keep = jax.random.bernoulli(rng, keep_rate, shape=x.shape)
+  return keep * x / keep_rate
+
+
 class SelfAttention2d(hk.Module):
     def __init__(self, n_head=1, dropout_rate=0.1, name=None):
         super().__init__(name=name)
@@ -186,6 +205,7 @@ class CrossAttention(hk.Module):
         return self.fuse(xy)
 
 
+
 class ResMLP(hk.Module):
     def __init__(self, num_layers, input_size, mid_size, dr_rate, name=None):
         super().__init__(name)
@@ -195,12 +215,13 @@ class ResMLP(hk.Module):
         self.dr_rate = dr_rate
         self.layers = [hk.nets.MLP([mid_size, input_size]) for _ in range(num_layers)]
 
-    def __call__(self, x, is_training):
+    def __call__(self, x, enabled):
         x_init = x
-        for layer in self.layers:
-            x = layer(x, dropout_rate=self.dr_rate * is_training, rng=hk.next_rng_key())
-        return x + x_init
 
+        for layer in self.layers:
+            x = layer(x)
+            x = dropout(hk.next_rng_key(), enabled * self.dr_rate, x)
+        return x + x_init
 
 
 def reshape_embed_to_image(x, image_shape):
@@ -276,7 +297,7 @@ class DiffusionImage(hk.Module):
         x_3 = jax.image.resize(x_3, [*x_3.shape[:2], *x_2.shape[2:]], "nearest")
         ##############################################################
         x_2 = jnp.concatenate([x_2, x_3], axis=1)
-        x_2 = ResConvBlock(1, self.c, self.c, self.c // 2, name='SecondResBlock2')(x_2, is_training)
+        x_2 = hk.remat(ResConvBlock(1, self.c, self.c, self.c // 2, name='SecondResBlock2'))(x_2, is_training)
         x_2 = jax.image.resize(x_2, [*x_2.shape[:2], *x.shape[2:]], "nearest")
         ##############################################################
         x = jnp.concatenate([x, x_2], axis=1)
@@ -295,8 +316,8 @@ class DiffusionLatent(hk.Module):
         timestep_embed = FourierFeatures(64, 1)(log_snr[:, None])
 
         y_1 = jnp.concatenate([timestep_embed, y], axis=1)
-        y_1 = hk.Linear(512)(y_1)
-        y_1 = jax.nn.relu(y_1)
+        y_1 = hk.Linear(1024)(y_1)
+        y_1 = ResMLP(4, 1024, 1024, 0.1)(y_1, is_training)
 
         te_planes = jnp.tile(
             timestep_embed[..., None, None], [1, 1, x.shape[2], x.shape[3]]
@@ -309,15 +330,15 @@ class DiffusionLatent(hk.Module):
         #print(f'x_2: {x_2.shape}')
         x_embed_2 = hk.remat(clip.VisualTransformer(128, 16, 128, 2, 2, 512, "ViT01"))(x_2)
         ##############################################################
-        y2 = hk.Linear(512)(jnp.concatenate([y_1, x_embed_2], axis=1))
-        y_2 = ResMLP(4, 512, 1024, 0.1)(y2, is_training)
+        y2 = hk.Linear(1024)(jnp.concatenate([y_1, x_embed_2], axis=1))
+        y_2 = ResMLP(4, 1024, 2048, 0.1)(y2, is_training)
         ############################################################
-        y_3 = ResMLP(4, 1024, 512, 0.1)(jnp.concatenate([y_2, y], axis=1), is_training)
-        y_3 = hk.Linear(512)(y_3)
+        y_3 = hk.Linear(2048)(jnp.concatenate([y_2, y], axis=1))
+        y_3 = hk.remat(ResMLP(4, 2048, 2048, 0.1))(y_3, is_training)
         ##############################################################
-        y_4 = ResMLP(4, 512, 1024, 0.1)(y_3, is_training)
+        y_4 = hk.remat(ResMLP(4, 2048, 512, 0.1))(y_3, is_training)
         y_4 = hk.Linear(512)(jnp.concatenate([y_4, y_2], axis=1))
-        y = ResMLP(2, 512, 512, 0.0)(y_4, is_training)
+        y = hk.remat(ResMLP(2, 512, 512, 0.0))(y_4, is_training)
         return y
 
 

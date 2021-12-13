@@ -12,7 +12,6 @@ from diffusion.models.clip_latent import diffusion_model
 from diffusion.utils import t_to_alpha_sigma, log_snr_to_alpha_sigma, get_sampling_schedule
 
 
-
 def make_forward_fn(model, opt, gamma):
 
     def compute_loss(params, key, images, embeds, extra_args, is_training):
@@ -54,7 +53,7 @@ def make_sample_fn(model):
             repeat(log_snr, '-> n', n=x_t.shape[0]),
             y_t,
             extra_args,
-            jnp.array(0)
+            jnp.array(0.0)
         )
         alpha, sigma = log_snr_to_alpha_sigma(log_snr)
         alpha_next, sigma_next = log_snr_to_alpha_sigma(log_snr_next)
@@ -142,7 +141,5 @@ def test_sample():
     fake_embed = jax.random.normal(keys[1], [3, 512])
     do_sample(params, keys[2], fake_image, fake_embed, 100, 2, {})
 
-
-
-# test_model()
-test_sample()
+test_model()
+# test_sample()
