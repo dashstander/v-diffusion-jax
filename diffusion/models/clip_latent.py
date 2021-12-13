@@ -342,6 +342,49 @@ class DiffusionLatent(hk.Module):
         return y
 
 
+
+class BigDiffusionLatent(hk.Module):
+
+    def __init__(self, size):
+        super().__init__()
+        self.c = size
+
+    def __call__(self, x, t, y, extra_args, is_training):
+        log_snr = utils.alpha_sigma_to_log_snr(*utils.t_to_alpha_sigma(t))
+        timestep_embed = FourierFeatures(128, 1)(log_snr[:, None])
+
+        y_1 = jnp.concatenate([timestep_embed, y], axis=1)
+        y_1 = hk.Linear(1024)(y_1)
+        y_1 = ResMLP(4, 1024, 1024, 0.1)(y_1, is_training)
+
+        te_planes = jnp.tile(
+            timestep_embed[..., None, None], [1, 1, x.shape[2], x.shape[3]]
+        )
+        x = jnp.concatenate([x, te_planes], axis=1)  
+        x = ResConvBlock(4, self.c // 2, self.c // 2, name="ResBlock1")(x, is_training) # Nx128x256x256
+        #print(f'x: {x.shape}')
+        ########################################################
+        x_2 = hk.AvgPool(4, 2, "SAME", 1)(x)  # Nx128x128x128
+        #print(f'x_2: {x_2.shape}')
+        x_embed_2 = hk.remat(clip.VisualTransformer(128, 16, 128, 2, 2, 512, "ViT01"))(x_2)
+        x_embed_2 = ResMLP(4, 512, 1024, 0.2)(x_embed_2, is_training)
+        ##############################################################
+        y2 = hk.Linear(1024)(jnp.concatenate([y_1, x_embed_2], axis=1))
+        y_2 = ResMLP(8, 1024, 2048, 0.2)(y2, is_training)
+        ############################################################
+        y_3 = hk.Linear(2048)(jnp.concatenate([y_2, y], axis=1))
+        y_3 = hk.remat(ResMLP(8, 2048, 2048, 0.1))(y_3, is_training)
+        ##############################################################
+        y_4 = hk.remat(ResMLP(4, 2048, 512, 0.1))(y_3, is_training)
+        y_4 = hk.Linear(512)(jnp.concatenate([y_4, y_2], axis=1))
+        y = hk.remat(ResMLP(2, 512, 512, 0.0))(y_4, is_training)
+        return y
+
+
+def big_latent_model(x, t, y, extra_args, is_training):
+    return BigDiffusionLatent(256)(x, t, y, extra_args, is_training)
+
+
 def diffusion_model(x, t, y, extra_args, is_training):
     x_pred = DiffusionImage(256)(x, t, y, extra_args, is_training)
     y_pred = DiffusionLatent(256)(x, t, y, extra_args, is_training)
