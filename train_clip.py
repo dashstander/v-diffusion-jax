@@ -324,6 +324,7 @@ def main():
             batch_embeds = clip_embed(batch, subkey)
             images = jax.tree_map(lambda x: psplit(jnp.array(x), num_local_devices), batch['image_tensor'])
             embeds = jax.tree_map(lambda x: psplit(x, num_local_devices), batch_embeds)
+            del batch_embeds
             key, subkey = jax.random.split(key)
             keys = jnp.stack(jax.random.split(subkey, num_local_devices))
             loss, params, opt_state, aux_data = pmap_train_step(
@@ -337,6 +338,7 @@ def main():
             params_ema = p_ema_update(params, params_ema, get_ema_decay(epoch))
             aux_data = unreplicate(aux_data)
             batch_log = {'image_loss': aux_data[0], 'embedding_loss': aux_data[1], 'epoch': epoch, 'loss': unreplicate(loss)}
+            del aux_data
             if num_grad_acc_steps > 1:
                 accumulated_losses['accum_image'].append(batch_log['image_loss'])
                 accumulated_losses['accum_latent'].append(batch_log['latent'])
@@ -350,6 +352,7 @@ def main():
                     )
                     accumulated_losses = {'image': [], 'latent': [], 'total': []}
             wandb.log(batch_log)
+            del batch_log
             if i % 50 == 0:
                 tqdm.write(f'Epoch {epoch}, iteration {i}, loss {unreplicate(loss):g}')
         return params, params_ema, opt_state
