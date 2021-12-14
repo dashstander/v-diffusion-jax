@@ -12,20 +12,16 @@ import optax
 import PIL
 from torch.utils import data
 from torchvision import transforms
-from tqdm import tqdm, trange
+from tqdm import tqdm
 import warnings
 
 from diffusion.clip_tokenizer import tokenize
 from diffusion.cloud_storage import ImageDataset
 from diffusion.utils import (
     ema_update,
-    get_sampling_schedule,
-    psplit, punsplit,
-    log_snr_to_alpha_sigma,
     ToMode,
     t_to_alpha_sigma,
     unreplicate,
-    to_pil_image,
     worker_init_fn
 )
 from diffusion.models.clip_latent import big_latent_model
@@ -132,16 +128,17 @@ def make_clip_embed_fn(image_fn, text_fn, params, normalize):
     def f(batch, key):
         images = batch['image_tensor']
         texts = batch['text']
-        clip_in = jax.image.resize(jnp.array(images), (*images.shape[:2], clip_size, clip_size), 'cubic')
+        clip_in = jax.image.resize(
+            jnp.array(images),
+            (*images.shape[:2], clip_size, clip_size),
+            'cubic'
+        )
         image_embeds = image_fn(params, normalize((clip_in + 1) / 2))
         text_embeds = text_fn(params, tokenize(texts))
         dice_roll = jnp.repeat(
             jax.random.uniform(key, [text_embeds.shape[0],]),
             text_embeds.shape[1]
         ).reshape(text_embeds.shape)
-        #print(clip_in.shape)
-        #clip_in = jnp.pad(clip_in, [(0, 0), (0, 0), (extent, extent), (extent, extent)], 'edge')
-        #print(clip_in.shape)
         return jax.lax.select(dice_roll > 0.5, image_embeds, text_embeds)
     return f
 
