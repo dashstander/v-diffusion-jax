@@ -6,6 +6,7 @@ numpy
 optax
 regex
 Pillow
+pyarrow
 torch
 torchvision
 tqdm

@@ -237,11 +237,15 @@ def main():
     opt_state = jax.device_put_replicated(opt_state, jax.local_devices())
 
     key = jax.random.split(key, num_processes)[local_rank]
+    jit_start = time.time()
+    train_step = jax.pmap(
+        make_forward_fn(model, opt, args.gamma),
+        axis_name='i'
+    )
+    jit_time = time.time() - jit_start
+    print(f'It took {jit_time}s to compile the train_step function.')
 
-    train_step = make_forward_fn(model, opt, args.gamma)
-    
     def train_one_epoch(params, params_ema, opt_state, key):
-        pmap_train_step = jax.pmap(train_step, axis_name='i')
         for i, batch in enumerate(tqdm(train_dl)):
             key, subkey = jax.random.split(key)
             batch_embeds = clip_embed(batch, subkey)
@@ -249,7 +253,7 @@ def main():
             embeds = jax.tree_map(lambda x: psplit(x, num_local_devices), batch_embeds)
             key, subkey = jax.random.split(key)
             keys = jnp.stack(jax.random.split(subkey, num_local_devices))
-            loss, params, opt_state = pmap_train_step(
+            loss, params, opt_state = train_step(
                 params,
                 opt_state,
                 keys,
