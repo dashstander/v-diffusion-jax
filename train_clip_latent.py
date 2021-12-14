@@ -259,7 +259,7 @@ def main():
                 {}
             )
             params_ema = p_ema_update(params, params_ema, get_ema_decay(epoch))
-            batch_log = {'loss': unreplicate(loss)}
+            batch_log = {'embedding_loss': unreplicate(loss)}
             wandb.log(batch_log)
             del batch_log
             if i % 50 == 0:
