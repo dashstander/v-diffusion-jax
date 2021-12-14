@@ -244,15 +244,16 @@ def main():
     )
     jit_time = time.time() - jit_start
     print(f'It took {jit_time}s to compile the train_step function.')
-
     def train_one_epoch(params, params_ema, opt_state, key):
         for i, batch in enumerate(tqdm(train_dl)):
             key, subkey = jax.random.split(key)
+            print('Getting CLIP embeddings')
             batch_embeds = clip_embed(batch, subkey)
             images = jax.tree_map(lambda x: psplit(jnp.array(x), num_local_devices), batch['image_tensor'])
             embeds = jax.tree_map(lambda x: psplit(x, num_local_devices), batch_embeds)
             key, subkey = jax.random.split(key)
             keys = jnp.stack(jax.random.split(subkey, num_local_devices))
+            print('Doing forward and backward passes')
             loss, params, opt_state = train_step(
                 params,
                 opt_state,
