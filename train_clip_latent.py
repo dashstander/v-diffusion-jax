@@ -22,14 +22,13 @@ from diffusion.utils import (
     ToMode,
     t_to_alpha_sigma,
     unreplicate,
-    worker_init_fn
+    worker_init_fn,
+    psplit
 )
 from diffusion.models.clip_latent import big_latent_model
 
 warnings.simplefilter('ignore', PIL.Image.DecompressionBombWarning)
 
-
-from jax.experimental import host_callback
 import wandb
 
 bucket = 'clip-diffusion-01'
