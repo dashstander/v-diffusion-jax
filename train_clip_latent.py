@@ -133,7 +133,9 @@ def make_clip_embed_fn(image_fn, text_fn, params, normalize):
             'cubic'
         )
         image_embeds = image_fn(params, normalize((clip_in + 1) / 2))
+        print('Have image embeds')
         text_embeds = text_fn(params, tokenize(texts))
+        print('Have text embeds')
         dice_roll = jnp.repeat(
             jax.random.uniform(key, [text_embeds.shape[0],]),
             text_embeds.shape[1]
@@ -249,6 +251,7 @@ def main():
             key, subkey = jax.random.split(key)
             print('Getting CLIP embeddings')
             batch_embeds = clip_embed(batch, subkey)
+            print('Have embeddings')
             images = jax.tree_map(lambda x: psplit(jnp.array(x), num_local_devices), batch['image_tensor'])
             embeds = jax.tree_map(lambda x: psplit(x, num_local_devices), batch_embeds)
             key, subkey = jax.random.split(key)
